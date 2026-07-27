@@ -447,11 +447,15 @@ export default function App() {
           })()
         : null;
   const plannedRefillOptions = plannedRefillState
-    ? refillActions(plannedRefillState)
+    ? refillActions(plannedRefillState).filter(
+        (action) =>
+          pendingActions.length !== 2 || action.source !== "none",
+      )
     : [];
   const canCompletePendingMove =
     pendingActions.length > 0 &&
-    (!plannedRefillOptions.length || Boolean(plannedRefill));
+    (!plannedRefillState ||
+      (plannedRefillOptions.length > 0 && Boolean(plannedRefill)));
 
   const choosePosition = (x: number, y: number) => {
     const choices = selectedActions.filter(

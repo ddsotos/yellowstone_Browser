@@ -180,10 +180,15 @@ export const enumerateTurnCandidates = (
     candidateState: GameState,
     candidateHistory: RecentPlacement[],
   ) => {
-    const refills = legalActions(candidateState).filter(
+    const legalRefills = legalActions(candidateState).filter(
       (action): action is RefillAction => action.type === "refill",
     );
-    if (refills.length) {
+    if (legalRefills.length) {
+      const playedTwoCards =
+        actions.filter((action) => action.type === "place").length === 2;
+      const refills = legalRefills.filter(
+        (refill) => !playedTwoCards || refill.source !== "none",
+      );
       refills.forEach((refill) => {
         result.push({
           actions: [...actions, refill],
@@ -312,6 +317,9 @@ export const completeHumanCandidate = (
   plannedRefill: RefillAction | null = null,
 ): TurnCandidate | null => {
   if (!pendingActions.length) return null;
+  if (pendingActions.length === 2 && plannedRefill?.source === "none") {
+    return null;
+  }
   let state = turnStart;
   let nextHistory = history;
   pendingActions.forEach((action) => {

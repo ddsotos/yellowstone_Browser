@@ -8,7 +8,6 @@ import {
   CONTEXT_SIZE,
   encodeCandidates,
   enumerateTurnCandidates,
-  playedCardsSignature,
   topDistinctCandidateEvaluations,
 } from "./value";
 
@@ -52,7 +51,7 @@ describe("value model inputs", () => {
     expect(state.players[0].hand).toHaveLength(6);
   });
 
-  it("evaluates an explicit no-refill choice after two cards", () => {
+  it("excludes an explicit no-refill choice after two cards", () => {
     const state = createInitialState(4, 4);
     const selected = enumerateTurnCandidates(state).find(
       (candidate) =>
@@ -62,19 +61,21 @@ describe("value model inputs", () => {
           (action) => action.type === "refill" && action.source === "none",
         ),
     );
-    expect(selected).toBeDefined();
-    const placements = selected!.actions.filter(
+    expect(selected).toBeUndefined();
+    const twoCardCandidate = enumerateTurnCandidates(state).find(
+      (candidate) =>
+        candidate.actions.filter((action) => action.type === "place").length ===
+        2,
+    );
+    expect(twoCardCandidate).toBeDefined();
+    const placements = twoCardCandidate!.actions.filter(
       (action) => action.type === "place",
     );
     const completed = completeHumanCandidate(state, placements, [], {
       type: "refill",
       source: "none",
     });
-    expect(completed?.state).toEqual(selected?.state);
-    expect(completed?.actions.at(-1)).toEqual({
-      type: "refill",
-      source: "none",
-    });
+    expect(completed).toBeNull();
   });
 
   it("completes a one-card turn that empties the hand after refill selection", () => {
@@ -126,36 +127,33 @@ describe("value model inputs", () => {
       Math.max(...evaluations.map((value) => value.probability)),
     );
 
-    const candidatesByCards = new Map<string, typeof candidates>();
-    candidates.forEach((candidate) => {
-      const signature = playedCardsSignature(state, candidate.actions);
-      candidatesByCards.set(signature, [
-        ...(candidatesByCards.get(signature) ?? []),
-        candidate,
-      ]);
-    });
-    const sameCards = [...candidatesByCards.values()].find(
-      (values) =>
-        new Set(
-          values.map((value) => candidateRefillDecision(value.actions)),
-        ).size > 1,
+    const deckCandidate = candidates.find(
+      (candidate) =>
+        candidate.actions.filter((action) => action.type === "place").length ===
+          2 &&
+        candidate.actions.some(
+          (action) => action.type === "refill" && action.source === "deck",
+        ),
     );
-    expect(sameCards).toBeDefined();
+    expect(deckCandidate).toBeDefined();
+    const noneCandidate = {
+      ...deckCandidate!,
+      actions: [
+        ...deckCandidate!.actions.slice(0, -1),
+        { type: "refill" as const, source: "none" as const },
+      ],
+    };
     const refillResults = topDistinctCandidateEvaluations(
       state,
-      sameCards!.map((candidate, index) => ({
-        candidate,
-        probability: index / sameCards!.length,
-      })),
+      [
+        { candidate: deckCandidate!, probability: 0.4 },
+        { candidate: noneCandidate, probability: 0.5 },
+      ],
       10,
     );
-    expect(
-      new Set(
-        refillResults.map((value) =>
-          candidateRefillDecision(value.candidate.actions),
-        ),
-      ).size,
-    ).toBeGreaterThan(1);
+    expect(refillResults.map((value) =>
+      candidateRefillDecision(value.candidate.actions),
+    )).toEqual(["none", "deck"]);
   });
 
   it("returns at most three distinct card-and-refill decisions", () => {

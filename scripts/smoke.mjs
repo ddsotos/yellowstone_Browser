@@ -34,7 +34,10 @@ try {
   await page.locator(".hand-card").first().click();
   await page.locator(".board-cell.is-legal").first().click();
   await page.locator(".frame-confirm").click();
-  await page.getByText("補充しない", { exact: true }).click();
+  if (await page.getByText("補充しない", { exact: true }).count()) {
+    throw new Error("two-card no-refill choice must not be displayed");
+  }
+  await page.getByText("山札から補充", { exact: true }).click();
 
   const comparison = page.locator(".comparison");
   const unavailable = page.getByText(
@@ -45,7 +48,7 @@ try {
     unavailable.waitFor({ state: "visible", timeout: 45_000 }),
   ]);
   if (await comparison.isVisible()) {
-    if (!(await comparison.getByText(/補充なし/).first().isVisible())) {
+    if (!(await comparison.getByText(/山札から補充/).first().isVisible())) {
       throw new Error("refill choice was not included in move description");
     }
     const rates = await comparison.locator("strong").allTextContents();
