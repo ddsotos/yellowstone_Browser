@@ -35,6 +35,11 @@ import {
   TurnEvaluation,
 } from "./game/value";
 import {
+  createV2Tracking,
+  observeV2Action,
+  replayV2Actions,
+} from "./game/v2Tracking";
+import {
   AssistMode,
   clearSavedGame,
   Difficulty,
@@ -114,6 +119,9 @@ export default function App() {
   const [history, setHistory] = useState<RecentPlacement[]>(
     savedAtStart?.history ?? [],
   );
+  const [v2Tracking, setV2Tracking] = useState(
+    savedAtStart?.v2Tracking ?? createV2Tracking(4),
+  );
   const [pendingState, setPendingState] = useState<GameState | null>(null);
   const [pendingActions, setPendingActions] = useState<PlaceCardAction[]>([]);
   const [selectedHandIndex, setSelectedHandIndex] = useState<number | null>(null);
@@ -128,8 +136,8 @@ export default function App() {
   const npcRunning = useRef(false);
 
   useEffect(() => {
-    if (state) saveGame(state, history, settings);
-  }, [state, history, settings]);
+    if (state) saveGame(state, history, settings, v2Tracking);
+  }, [state, history, settings, v2Tracking]);
 
   useEffect(() => {
     if (
@@ -172,6 +180,7 @@ export default function App() {
       setMessage(`NPC ${state.currentPlayerIndex} が考えています…`);
       let nextState = state;
       let nextHistory = history;
+      let nextV2Tracking = v2Tracking;
       const playerIndex = state.currentPlayerIndex;
       try {
         if (
@@ -181,7 +190,17 @@ export default function App() {
           legalActions(nextState).some((action) => action.type === "place")
         ) {
           const candidates = enumerateTurnCandidates(nextState, nextHistory);
-          const best = await selectBestTurn(candidates, playerIndex);
+          const best = await selectBestTurn(
+            candidates,
+            playerIndex,
+            nextState,
+            nextV2Tracking,
+          );
+          nextV2Tracking = replayV2Actions(
+            nextState,
+            best.candidate.actions,
+            nextV2Tracking,
+          ).tracking;
           nextState = best.candidate.state;
           nextHistory = best.candidate.history;
         } else {
@@ -195,6 +214,12 @@ export default function App() {
               nextState,
               action,
               nextHistory,
+            );
+            nextV2Tracking = observeV2Action(
+              nextV2Tracking,
+              nextState,
+              action,
+              applied.state,
             );
             nextState = applied.state;
             nextHistory = applied.history;
@@ -211,6 +236,12 @@ export default function App() {
             action,
             nextHistory,
           );
+          nextV2Tracking = observeV2Action(
+            nextV2Tracking,
+            nextState,
+            action,
+            applied.state,
+          );
           nextState = applied.state;
           nextHistory = applied.history;
         }
@@ -223,6 +254,7 @@ export default function App() {
         }
         nextState = state;
         nextHistory = history;
+        nextV2Tracking = v2Tracking;
         while (
           nextState.phase !== "game_over" &&
           nextState.currentPlayerIndex === playerIndex
@@ -234,18 +266,25 @@ export default function App() {
             action,
             nextHistory,
           );
+          nextV2Tracking = observeV2Action(
+            nextV2Tracking,
+            nextState,
+            action,
+            applied.state,
+          );
           nextState = applied.state;
           nextHistory = applied.history;
         }
       } finally {
         setHistory(nextHistory);
+        setV2Tracking(nextV2Tracking);
         setState(nextState);
         setThinking(false);
         npcRunning.current = false;
       }
     };
     void run();
-  }, [state, history, settings.difficulty]);
+  }, [state, history, settings.difficulty, v2Tracking]);
 
   const startNew = () => {
     if (state && !window.confirm("保存中の対局を上書きして新しく始めますか？")) {
@@ -254,6 +293,7 @@ export default function App() {
     const next = createInitialState(4);
     setState(next);
     setHistory([]);
+    setV2Tracking(createV2Tracking(4));
     setScreen("game");
     setMessage("");
   };
@@ -475,6 +515,8 @@ export default function App() {
       const evaluations = await evaluateCandidates(
         [...candidates, ownCandidate],
         0,
+        state,
+        v2Tracking,
       );
       const own = evaluations.at(-1);
       if (!own) throw new Error("自分の手を評価できません");
@@ -499,6 +541,9 @@ export default function App() {
       evaluation?.candidate ??
       completeHumanCandidate(state, pendingActions, history, plannedRefill);
     if (!candidate) return;
+    setV2Tracking(
+      replayV2Actions(state, candidate.actions, v2Tracking).tracking,
+    );
     setHistory(candidate.history);
     setState(candidate.state);
     setComparison(null);
@@ -509,7 +554,7 @@ export default function App() {
     let modelMetadata: unknown = null;
     try {
       const response = await fetch(
-        `${import.meta.env.BASE_URL}models/win_value.json`,
+        `${import.meta.env.BASE_URL}models/win_value_v2.json`,
       );
       if (response.ok) modelMetadata = await response.json();
     } catch {
@@ -547,12 +592,13 @@ export default function App() {
         },
         model: {
           runtime: "onnxruntime-web",
-          modelPath: "models/win_value.onnx",
+          modelPath: "models/win_value_v2.onnx",
           metadata: modelMetadata,
         },
         settings,
         turnStartState: state,
         recentHistory: history,
+        v2Tracking,
         playerSelection: {
           plannedRefill,
           evaluation: serializeEvaluation(comparison.own, true),
@@ -664,6 +710,14 @@ export default function App() {
                         state,
                         action,
                         history,
+                      );
+                      setV2Tracking(
+                        observeV2Action(
+                          v2Tracking,
+                          state,
+                          action,
+                          applied.state,
+                        ),
                       );
                       setState(applied.state);
                       setHistory(applied.history);

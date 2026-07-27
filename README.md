@@ -49,7 +49,7 @@ npm run smoke
 
 ## モデル更新
 
-`../online_bundle/models/win_value_canonical_old_001.pt` からONNXを再生成する場合：
+`../online_bundle_v2_preview/models/win_value_v2.pt` からONNXを再生成する場合：
 
 ```powershell
 python -m pip install --target .tools/py onnx==1.18.0 onnxscript==0.3.2
@@ -57,9 +57,9 @@ python scripts/export_model_onnx.py
 ```
 
 変換スクリプトはPyTorch出力とONNX出力の最大絶対誤差を検証し、
-`public/models/win_value.json`へ記録します。
-ブラウザ推論では、学習時と同じ `fast_lr_ud_color_v1` 正規化を
-盤面・手札・履歴へ適用してからONNXへ渡します。
+`public/models/win_value_v2.json`へ記録します。
+ブラウザ推論では、学習時と同じ `strict_residual_v2` 正規化を
+盤面・手札・直近3手番・枠移動・公開マイナス情報へ適用してからONNXへ渡します。
 
 ## 権利と公開
 

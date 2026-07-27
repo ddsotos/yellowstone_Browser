@@ -33,7 +33,7 @@ self.addEventListener("message", async (event) => {
       ]),
       context: new self.ort.Tensor("float32", new Float32Array(context), [
         count,
-        81,
+        300,
       ]),
     };
     const output = await session.run(feeds);

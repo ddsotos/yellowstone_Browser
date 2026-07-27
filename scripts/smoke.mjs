@@ -65,7 +65,10 @@ try {
       audit.aiTop3?.length !== 3 ||
       !audit.turnStartState?.players ||
       !audit.playerSelection?.evaluation ||
-      !audit.allAiCandidates?.length
+      !audit.allAiCandidates?.length ||
+      audit.model?.metadata?.valueSchema !== "yellowstone.value.v2" ||
+      audit.model?.metadata?.contextShape?.[1] !== 300 ||
+      !audit.v2Tracking?.negativePiles
     ) {
       throw new Error("analysis JSON is missing reproducibility data");
     }
@@ -111,7 +114,7 @@ try {
     }
 
     await page.evaluate(() => {
-      const key = "yellowstone-browser:game:v1";
+      const key = "yellowstone-browser:game:v2";
       const saved = JSON.parse(localStorage.getItem(key));
       saved.state.players[0].hand = [saved.state.players[0].hand[0]];
       saved.state.currentPlayerIndex = 0;
@@ -131,7 +134,7 @@ try {
     await page.waitForFunction(
       () => {
         const saved = JSON.parse(
-          localStorage.getItem("yellowstone-browser:game:v1"),
+          localStorage.getItem("yellowstone-browser:game:v2"),
         );
         return saved?.state?.lastTurnPlayCounts?.[0] === 1;
       },

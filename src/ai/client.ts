@@ -1,8 +1,7 @@
-import {
-  encodeCandidates,
-  TurnCandidate,
-  TurnEvaluation,
-} from "../game/value";
+import { TurnCandidate, TurnEvaluation } from "../game/value";
+import { GameState } from "../game/types";
+import { encodeCandidatesV2 } from "../game/valueV2";
+import { V2TrackingState } from "../game/v2Tracking";
 
 const TIMEOUT_MS = 10_000;
 let worker: Worker | null = null;
@@ -16,7 +15,7 @@ export class AiTimeoutError extends Error {}
 
 const modelUrl = (): string =>
   new URL(
-    `${import.meta.env.BASE_URL}models/win_value.onnx`,
+    `${import.meta.env.BASE_URL}models/win_value_v2.onnx`,
     window.location.href,
   ).href;
 
@@ -71,12 +70,19 @@ export const warmAi = (): void => {
 export const evaluateCandidates = async (
   candidates: TurnCandidate[],
   viewer: number,
+  turnStart: GameState,
+  tracking: V2TrackingState,
 ): Promise<TurnEvaluation[]> => {
   if (!candidates.length) return [];
   await ensureReady();
   const activeWorker = worker!;
   const id = ++requestId;
-  const { board, context } = encodeCandidates(candidates, viewer);
+  const { board, context } = encodeCandidatesV2(
+    candidates,
+    viewer,
+    turnStart,
+    tracking,
+  );
 
   return new Promise<TurnEvaluation[]>((resolve, reject) => {
     const timeout = window.setTimeout(() => {
@@ -126,8 +132,15 @@ export const evaluateCandidates = async (
 export const selectBestTurn = async (
   candidates: TurnCandidate[],
   viewer: number,
+  turnStart: GameState,
+  tracking: V2TrackingState,
 ): Promise<TurnEvaluation> => {
-  const evaluations = await evaluateCandidates(candidates, viewer);
+  const evaluations = await evaluateCandidates(
+    candidates,
+    viewer,
+    turnStart,
+    tracking,
+  );
   if (!evaluations.length) throw new Error("評価できる候補手がありません");
   return evaluations.reduce((best, current) =>
     current.probability > best.probability ? current : best,

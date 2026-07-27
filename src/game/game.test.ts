@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyAction,
+  applyKnownLegalAction,
   boardFitsInSomeFrame,
   canPlaceCardAt,
   createDeck,
@@ -98,5 +99,18 @@ describe("game engine", () => {
     expect(state.phase).toBe("game_over");
     expect(state.winners.length).toBeGreaterThan(0);
     expect(legalActions(state)).toHaveLength(0);
+  });
+
+  it("settles immediately when a deck refill draws the final card", () => {
+    const state = createInitialState(4, 99);
+    state.phase = "refill";
+    state.players[0].hand = state.players[0].hand.slice(0, 5);
+    state.deck = [state.deck[0]];
+    const next = applyKnownLegalAction(state, {
+      type: "refill",
+      source: "deck",
+    });
+    expect(next.settlementCount).toBe(1);
+    expect(next.deck).toHaveLength(0);
   });
 });

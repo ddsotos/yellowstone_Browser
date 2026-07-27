@@ -340,7 +340,7 @@ const applyRefill = (state: GameState, action: RefillAction): GameState => {
     player.hand.push(...draw(player.negativeCards, HAND_SIZE));
   }
   player.hand = sortHand(player.hand);
-  if (action.source === "deck" && player.hand.length < HAND_SIZE) {
+  if (action.source === "deck" && next.deck.length === 0) {
     return settle(next);
   }
   return advance(next);
