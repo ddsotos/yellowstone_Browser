@@ -7,6 +7,7 @@ import {
   completeHumanCandidate,
   CONTEXT_SIZE,
   encodeCandidates,
+  encodeCandidatesV1AtDecisionBoundary,
   enumerateTurnCandidates,
   topDistinctCandidateEvaluations,
 } from "./value";
@@ -38,6 +39,31 @@ describe("value model inputs", () => {
     expect([...encoded.context].every(Number.isFinite)).toBe(true);
   });
 
+  it("keeps V1 candidates at the pre-refill decision boundary", () => {
+    const state = createInitialState(4, 12);
+    const candidate = enumerateTurnCandidates(state).find(
+      (value) =>
+        value.actions.filter((action) => action.type === "place").length === 2 &&
+        value.actions.some(
+          (action) => action.type === "refill" && action.source === "deck",
+        ),
+    );
+    expect(candidate).toBeDefined();
+    const boundary = encodeCandidatesV1AtDecisionBoundary(
+      [candidate!],
+      0,
+      state,
+    ).context;
+    const postRefill = encodeCandidates([candidate!], 0).context;
+    const presentCards = (context: Float32Array) =>
+      Array.from({ length: 6 }, (_, slot) => context[slot * 6]).reduce(
+        (sum, value) => sum + value,
+        0,
+      );
+    expect(presentCards(boundary)).toBe(4);
+    expect(presentCards(postRefill)).toBe(6);
+  });
+
   it("reconstructs a selected human turn without mutating its start state", () => {
     const state = createInitialState(4, 3);
     const selected = enumerateTurnCandidates(state)[0];
@@ -51,7 +77,7 @@ describe("value model inputs", () => {
     expect(state.players[0].hand).toHaveLength(6);
   });
 
-  it("excludes an explicit no-refill choice after two cards", () => {
+  it("allows an explicit no-refill choice after two cards", () => {
     const state = createInitialState(4, 4);
     const selected = enumerateTurnCandidates(state).find(
       (candidate) =>
@@ -61,7 +87,7 @@ describe("value model inputs", () => {
           (action) => action.type === "refill" && action.source === "none",
         ),
     );
-    expect(selected).toBeUndefined();
+    expect(selected).toBeDefined();
     const twoCardCandidate = enumerateTurnCandidates(state).find(
       (candidate) =>
         candidate.actions.filter((action) => action.type === "place").length ===
@@ -75,7 +101,12 @@ describe("value model inputs", () => {
       type: "refill",
       source: "none",
     });
-    expect(completed).toBeNull();
+    expect(completed).not.toBeNull();
+    expect(completed?.actions.at(-1)).toEqual({
+      type: "refill",
+      source: "none",
+    });
+    expect(completed?.state.currentPlayerIndex).toBe(1);
   });
 
   it("completes a one-card turn that empties the hand after refill selection", () => {

@@ -1,0 +1,22 @@
+{
+  "id": "v2-lite-transition-epoch001",
+  "label": "V2-lite transition epoch001",
+  "modelPath": "models/v2-lite-transition-epoch001.onnx",
+  "valueSchema": "yellowstone.value.v2-lite-transition",
+  "inputCanonicalization": "strict_residual_v2_lite_transition",
+  "historySemantics": "last_two_completed_turns_before_turn",
+  "boardChannels": 58,
+  "contextSize": 138,
+  "scoreKind": "probability",
+  "outputTransform": "sigmoid",
+  "candidateGrouping": "played_cards_and_refill",
+  "sourceCheckpoint": "rl_bundle/models/win_value_v2_lite_transition_generation0_197800_epoch001.pt",
+  "sourceCheckpointSha256": "5bee152c9f98874085db41448ca15d95e596cc493e2dc666c0645650d39a045f",
+  "metrics": {
+    "validation_brier": 0.13047160400985464,
+    "test_brier": 0.12931150619730433,
+    "test_log_loss": 0.41635145653875993
+  },
+  "selection": null,
+  "exportMaxAbsoluteDifference": 5.7220458984375e-06
+}

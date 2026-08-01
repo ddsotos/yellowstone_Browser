@@ -8,19 +8,26 @@ const browser = await chromium.launch({
 });
 
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 940 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("http://127.0.0.1:4173/", { waitUntil: "networkidle" });
+  await page.goto(process.env.SMOKE_URL ?? "http://127.0.0.1:4173/", {
+    waitUntil: "networkidle",
+  });
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: "networkidle" });
 
   await page.getByText("強化NPC", { exact: true }).click();
   await page.getByText("AI分析モード", { exact: true }).click();
   await page.getByText("新しいゲーム", { exact: true }).click();
+  if (!(await page.getByRole("button", { name: "OFF" }).isVisible())) {
+    throw new Error("frame selection must default to OFF");
+  }
+  await page.getByRole("button", { name: "OFF" }).click();
   await page.locator(".hand-card").first().click();
   await page.locator(".board-cell.is-legal").first().click();
   await mkdir("test-artifacts", { recursive: true });
+  await page.locator(".frame-confirm").waitFor();
   await page.screenshot({
     path: "test-artifacts/frame-selection.png",
     fullPage: true,
@@ -31,11 +38,17 @@ try {
     path: "test-artifacts/one-card-choice.png",
     fullPage: true,
   });
+  await page.getByRole("button", { name: "ON" }).click();
   await page.locator(".hand-card").first().click();
   await page.locator(".board-cell.is-legal").first().click();
-  await page.locator(".frame-confirm").click();
-  if (await page.getByText("補充しない", { exact: true }).count()) {
-    throw new Error("two-card no-refill choice must not be displayed");
+  if (await page.locator(".frame-confirm").count()) {
+    throw new Error("default frame selection should auto-confirm the best frame");
+  }
+  if ((await page.locator(".planned-refill button").count()) < 2) {
+    throw new Error("two-card no-refill choice must be displayed");
+  }
+  if (!(await page.getByText("補充しない", { exact: true }).count())) {
+    throw new Error("two-card no-refill choice must be displayed");
   }
   await page.getByText("山札から補充", { exact: true }).click();
 
@@ -51,9 +64,76 @@ try {
     if (!(await comparison.getByText(/山札から補充/).first().isVisible())) {
       throw new Error("refill choice was not included in move description");
     }
-    const rates = await comparison.locator("strong").allTextContents();
-    if (rates.length !== 4 || rates.some((rate) => !rate.endsWith("%"))) {
+    const modelCards = comparison.locator(".model-comparison");
+    const modelCardCount = await modelCards.count();
+    if (modelCardCount !== 5) {
+      throw new Error(
+        `five model result sections were not displayed: ${modelCardCount}; ${await comparison.innerText()}`,
+      );
+    }
+    const rates = await comparison.locator(".comparison-cards strong").allTextContents();
+    if (
+      rates.length !== 20 ||
+      rates.filter((rate) => rate.endsWith("%")).length !== 16 ||
+      rates.filter((rate) => rate.endsWith("pt")).length !== 4
+    ) {
       throw new Error(`unexpected comparison rates: ${rates.join(",")}`);
+    }
+    const layout = await page.evaluate(() => {
+      const selectors = [
+        ".board-shell",
+        ".hand",
+        ".model-comparisons",
+        ".control-actions",
+      ];
+      const elements = [
+        ...selectors.map((selector) => document.querySelector(selector)),
+        ...document.querySelectorAll(".comparison-cards button"),
+      ].filter(Boolean);
+      const outside = elements
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            className: element.className,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            left: rect.left,
+          };
+        })
+        .filter(
+          (rect) =>
+            rect.top < -1 ||
+            rect.left < -1 ||
+            rect.right > window.innerWidth + 1 ||
+            rect.bottom > window.innerHeight + 1,
+        );
+      const rowTops = [
+        ...document.querySelectorAll(".model-comparison"),
+      ].map((element) =>
+        Math.round(element.getBoundingClientRect().top),
+      );
+      return {
+        viewport: [window.innerWidth, window.innerHeight],
+        scroll: [
+          document.documentElement.scrollWidth,
+          document.documentElement.scrollHeight,
+        ],
+        outside,
+        rowTops,
+        titledPlans: document.querySelectorAll(
+          ".comparison-cards small[title]:not([title=''])",
+        ).length,
+      };
+    });
+    if (
+      layout.scroll[0] > layout.viewport[0] + 1 ||
+      layout.scroll[1] > layout.viewport[1] + 1 ||
+      layout.outside.length ||
+      new Set(layout.rowTops).size !== 5 ||
+      layout.titledPlans !== 20
+    ) {
+      throw new Error(`comparison does not fit 1280x940: ${JSON.stringify(layout)}`);
     }
     const downloadPromise = page.waitForEvent("download");
     await comparison
@@ -64,29 +144,26 @@ try {
     if (!downloadedPath) throw new Error("analysis JSON was not downloaded");
     const audit = JSON.parse(await readFile(downloadedPath, "utf8"));
     if (
-      audit.schemaVersion !== 1 ||
-      audit.aiTop3?.length !== 3 ||
+      audit.schemaVersion !== 2 ||
+      audit.modelResults?.length !== 5 ||
+      audit.modelResults.some((model) => model.status !== "ok") ||
+      audit.modelResults.some((model) => model.aiTop3?.length !== 3) ||
       !audit.turnStartState?.players ||
-      !audit.playerSelection?.evaluation ||
-      !audit.allAiCandidates?.length ||
-      audit.model?.metadata?.valueSchema !== "yellowstone.value.v2" ||
-      audit.model?.metadata?.contextShape?.[1] !== 300 ||
+      audit.runtime?.registry?.models?.length < audit.modelResults.length ||
       !audit.v2Tracking?.negativePiles
     ) {
       throw new Error("analysis JSON is missing reproducibility data");
     }
-    const candidateGroups = new Set(
-      audit.aiTop3.map((value) => value.candidateGroupSignature),
-    );
-    if (candidateGroups.size !== 3) {
-      throw new Error("AI top 3 contains duplicate card-and-refill groups");
-    }
-    await comparison.getByText("AI 1位", { exact: true }).click();
+    const firstModelCandidates = comparison
+      .locator(".model-comparison")
+      .first()
+      .locator(".comparison-cards button");
+    await firstModelCandidates.nth(1).click();
     await page.screenshot({
-      path: "test-artifacts/analysis-comparison.png",
+      path: "test-artifacts/analysis-comparison-1280x940.png",
       fullPage: true,
     });
-    await comparison.getByText("あなたの手", { exact: true }).click();
+    await firstModelCandidates.first().click();
     const startedAt = Date.now();
     await page.getByText("表示中の手でプレイ", { exact: true }).click();
     await page
@@ -130,7 +207,6 @@ try {
     await page.getByText("続きから", { exact: true }).click();
     await page.locator(".hand-card").first().click();
     await page.locator(".board-cell.is-legal").first().click();
-    await page.locator(".frame-confirm").click();
     await page.getByText("補充方法を選択", { exact: true }).waitFor();
     await page.getByText("山札から補充", { exact: true }).click();
     await page.getByText("1枚プレイで終える", { exact: true }).click();

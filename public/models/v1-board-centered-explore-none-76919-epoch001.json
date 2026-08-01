@@ -1,0 +1,23 @@
+{
+  "id": "v1-board-centered-explore-none-76919-epoch001",
+  "label": "b-center V1 explore none 76,919 epoch001",
+  "modelPath": "models/v1-board-centered-explore-none-76919-epoch001.onnx",
+  "valueSchema": "yellowstone.value.v1",
+  "inputCanonicalization": "board_centered_v1_history_none",
+  "historySemantics": "none",
+  "boardChannels": 1,
+  "boardSize": 3,
+  "contextSize": 173,
+  "scoreKind": "probability",
+  "outputTransform": "sigmoid",
+  "candidateGrouping": "played_cards",
+  "sourceCheckpoint": "rl_bundle/models/win_value_v1_board_centered_explore_76919_none_epoch001.pt",
+  "sourceCheckpointSha256": "e9220e8eb8a0ad753670b91cd8437100effda04dcdc1b2afcca7dca149fa2e13",
+  "metrics": {
+    "validation_brier": 0.1318791198963283,
+    "test_brier": 0.13091272773507773,
+    "test_log_loss": 0.4206747989358912
+  },
+  "selection": null,
+  "exportMaxAbsoluteDifference": 9.5367431640625e-07
+}

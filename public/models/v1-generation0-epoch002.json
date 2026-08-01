@@ -1,0 +1,23 @@
+{
+  "id": "v1-generation0-epoch002",
+  "label": "Original V1 gen0 epoch002",
+  "modelPath": "models/v1-generation0-epoch002.onnx",
+  "valueSchema": "yellowstone.value.v1",
+  "inputCanonicalization": "fast_lr_ud_color_v1",
+  "historySemantics": "rolling_last_two_placements",
+  "boardChannels": 29,
+  "boardSize": 7,
+  "contextSize": 81,
+  "scoreKind": "probability",
+  "outputTransform": "sigmoid",
+  "candidateGrouping": "played_cards",
+  "sourceCheckpoint": "rl_bundle/models/win_value_v1_original_generation0_197800_epoch002.pt",
+  "sourceCheckpointSha256": "1a79a055f72061b055f045c01e27ba528ac85c8de9be4720a53c68986fc7da3b",
+  "metrics": {
+    "validation_brier": 0.12905219990622732,
+    "test_brier": 0.12982874092669536,
+    "test_log_loss": 0.4168729318096422
+  },
+  "selection": null,
+  "exportMaxAbsoluteDifference": 9.5367431640625e-07
+}

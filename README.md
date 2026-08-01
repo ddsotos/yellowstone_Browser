@@ -11,7 +11,7 @@
 - 人間1人 + NPC3人の4人戦
 - 通常NPCと価値モデルを使う強化NPC
 - 勝率を表示しないモードとAI分析モード
-- 自分の手と、カード構成または補充判断が異なるAI上位3択の勝率・盤面プレビュー比較
+- 5モデルそれぞれについて、自分の手とAI上位3択を同時比較
 - 2枚プレイ後の「補充しない」を勝率表示・AI候補・強化NPCの選択から除外
 - 完全なゲーム状態と全候補評価を含む検証JSONのダウンロード
 - 確定前の選び直し
@@ -22,6 +22,9 @@
 ## ローカル実行
 
 Node.js 18以上が必要です。
+
+Windowsでは`start-yellowstone.bat`をダブルクリックすると、開発サーバーを起動して
+既定ブラウザで自動的に開きます。サーバー用のコマンドプロンプトを閉じると停止します。
 
 ```powershell
 npm install
@@ -50,17 +53,16 @@ npm run smoke
 
 ## モデル更新
 
-`../online_bundle_v2_preview/models/win_value_v2.pt` からONNXを再生成する場合：
+`../rl_bundle/models/`の5モデルからONNXを再生成する場合：
 
 ```powershell
 python -m pip install --target .tools/py onnx==1.18.0 onnxscript==0.3.2
 python scripts/export_model_onnx.py
 ```
 
-変換スクリプトはPyTorch出力とONNX出力の最大絶対誤差を検証し、
-`public/models/win_value_v2.json`へ記録します。
-ブラウザ推論では、学習時と同じ `strict_residual_v2` 正規化を
-盤面・手札・直近3手番・枠移動・公開マイナス情報へ適用してからONNXへ渡します。
+変換スクリプトはcheckpoint metadataとPyTorch/ONNXの最大絶対誤差を検証し、
+`public/models/registry.json`へ記録します。action-deltaは30%版と100%版の
+全席評価結果から4席合算勝率が高い方を選び、評価未完了時は変換を開始しません。
 
 ## 権利と公開
 

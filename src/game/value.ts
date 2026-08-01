@@ -13,6 +13,7 @@ import {
   positionKey,
 } from "./types";
 import { canonicalizeValueTensors } from "./valueCanonicalization";
+import { v2EvaluationState } from "./v2Tracking";
 
 export const BOARD_CHANNELS = 29;
 export const CONTEXT_SIZE = 81;
@@ -184,12 +185,7 @@ export const enumerateTurnCandidates = (
       (action): action is RefillAction => action.type === "refill",
     );
     if (legalRefills.length) {
-      const playedTwoCards =
-        actions.filter((action) => action.type === "place").length === 2;
-      const refills = legalRefills.filter(
-        (refill) => !playedTwoCards || refill.source !== "none",
-      );
-      refills.forEach((refill) => {
+      legalRefills.forEach((refill) => {
         result.push({
           actions: [...actions, refill],
           state: applyKnownLegalAction(candidateState, refill),
@@ -310,6 +306,27 @@ export const encodeCandidates = (
   return canonicalizeValueTensors(board, context);
 };
 
+export const encodeCandidatesV1AtDecisionBoundary = (
+  candidates: TurnCandidate[],
+  viewer: number,
+  turnStart: GameState,
+): { board: Float32Array; context: Float32Array } => {
+  const board = new Float32Array(candidates.length * BOARD_CHANNELS * 7 * 7);
+  const context = new Float32Array(candidates.length * CONTEXT_SIZE);
+  candidates.forEach((candidate, index) => {
+    const evaluationState = v2EvaluationState(
+      turnStart,
+      candidate.actions,
+    ).state;
+    board.set(encodeBoard(evaluationState), index * BOARD_CHANNELS * 7 * 7);
+    context.set(
+      encodeContext(evaluationState, viewer, candidate.history),
+      index * CONTEXT_SIZE,
+    );
+  });
+  return canonicalizeValueTensors(board, context);
+};
+
 export const completeHumanCandidate = (
   turnStart: GameState,
   pendingActions: PlaceCardAction[],
@@ -317,9 +334,6 @@ export const completeHumanCandidate = (
   plannedRefill: RefillAction | null = null,
 ): TurnCandidate | null => {
   if (!pendingActions.length) return null;
-  if (pendingActions.length === 2 && plannedRefill?.source === "none") {
-    return null;
-  }
   let state = turnStart;
   let nextHistory = history;
   pendingActions.forEach((action) => {

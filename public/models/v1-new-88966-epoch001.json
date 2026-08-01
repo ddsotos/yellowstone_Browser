@@ -1,0 +1,23 @@
+{
+  "id": "v1-new-88966-epoch001",
+  "label": "Original V1 新88,966戦 epoch001",
+  "modelPath": "models/v1-new-88966-epoch001.onnx",
+  "valueSchema": "yellowstone.value.v1",
+  "inputCanonicalization": "fast_lr_ud_color_v1",
+  "historySemantics": "rolling_last_two_placements",
+  "boardChannels": 29,
+  "boardSize": 7,
+  "contextSize": 81,
+  "scoreKind": "probability",
+  "outputTransform": "sigmoid",
+  "candidateGrouping": "played_cards",
+  "sourceCheckpoint": "rl_bundle/models/win_value_v1_original_new_88966_epoch001.pt",
+  "sourceCheckpointSha256": "e5c3746869326b60c103c19aff2c97f742dae6511f8ba026aeaa8f147dbdf85f",
+  "metrics": {
+    "validation_brier": 0.1308075137102724,
+    "test_brier": 0.1300342790728556,
+    "test_log_loss": 0.4182386837426965
+  },
+  "selection": null,
+  "exportMaxAbsoluteDifference": 7.152557373046875e-07
+}

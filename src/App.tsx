@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AiTimeoutError,
-  evaluateCandidates,
+  evaluateAllModels,
+  ModelId,
+  ModelAnalysis,
+  PLAYABLE_MODEL_SPECS,
   selectBestTurn,
   warmAi,
 } from "./ai/client";
@@ -31,7 +34,6 @@ import {
   completeHumanCandidate,
   enumerateTurnCandidates,
   playedCardsSignature,
-  topDistinctCandidateEvaluations,
   TurnEvaluation,
 } from "./game/value";
 import {
@@ -49,23 +51,41 @@ import {
 } from "./storage";
 
 type Screen = "home" | "game" | "details";
-type Preview = "own" | `ai-${number}`;
+type Preview = "own" | `${string}:own` | `${string}:ai-${number}`;
 
 interface Comparison {
-  own: TurnEvaluation;
-  top: TurnEvaluation[];
-  all: TurnEvaluation[];
+  models: ModelAnalysis[];
 }
 
 const defaultSettings: Settings = {
   difficulty: "standard",
   assistMode: "none",
+  modelIds: [
+    "v1-generation0-epoch002",
+    "v2-generation0-epoch001",
+    "action-delta-selected",
+    "v1-new-88966-epoch001",
+    "v1-board-centered-explore-none-76919-epoch001",
+  ],
 };
 
 const cardName = (action: PlaceCardAction, before: GameState): string => {
   const card = before.players[before.currentPlayerIndex].hand[action.handIndex];
   const colors = { red: "赤", blue: "青", green: "緑", yellow: "黄" };
   return `${colors[card.color]}${card.rankIndex + 1}`;
+};
+
+// Candidate states include the selected refill. For the hand preview, keep the
+// decision boundary visible: remove played cards, but do not append refilled cards.
+const handBeforeRefill = (start: GameState, actions: Action[]) => {
+  const hand = [...start.players[start.currentPlayerIndex].hand];
+  for (const action of actions) {
+    if (action.type !== "place") continue;
+    if (action.handIndex >= 0 && action.handIndex < hand.length) {
+      hand.splice(action.handIndex, 1);
+    }
+  }
+  return hand;
 };
 
 const describePlan = (start: GameState, actions: Action[]): string => {
@@ -93,6 +113,13 @@ const describePlan = (start: GameState, actions: Action[]): string => {
 
 const roundedProbability = (probability: number): string =>
   `${Math.round(probability * 100)}%`;
+const formattedScore = (
+  value: number,
+  kind: "probability" | "delta",
+): string =>
+  kind === "delta"
+    ? `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)}pt`
+    : roundedProbability(value);
 
 const downloadJson = (filename: string, value: unknown): void => {
   const url = URL.createObjectURL(
@@ -109,10 +136,23 @@ const downloadJson = (filename: string, value: unknown): void => {
 
 export default function App() {
   const savedAtStart = useMemo(loadGame, []);
+  const initialSettings = useMemo((): Settings => {
+    const saved = savedAtStart?.settings;
+    if (!saved) return defaultSettings;
+    const modelIds =
+      saved.modelIds?.length
+        ? saved.modelIds
+        : saved.modelId
+          ? [saved.modelId]
+          : defaultSettings.modelIds;
+    return {
+      ...defaultSettings,
+      ...saved,
+      modelIds: modelIds.slice(0, 5),
+    };
+  }, [savedAtStart]);
   const [screen, setScreen] = useState<Screen>("home");
-  const [settings, setSettings] = useState<Settings>(
-    savedAtStart?.settings ?? defaultSettings,
-  );
+  const [settings, setSettings] = useState<Settings>(initialSettings);
   const [state, setState] = useState<GameState | null>(
     savedAtStart?.state ?? null,
   );
@@ -128,12 +168,14 @@ export default function App() {
   const [frameChoices, setFrameChoices] = useState<PlaceCardAction[]>([]);
   const [selectedFrameAction, setSelectedFrameAction] =
     useState<PlaceCardAction | null>(null);
+  const [manualFrameSelection, setManualFrameSelection] = useState(false);
   const [plannedRefill, setPlannedRefill] = useState<RefillAction | null>(null);
   const [comparison, setComparison] = useState<Comparison | null>(null);
   const [preview, setPreview] = useState<Preview>("own");
   const [message, setMessage] = useState("");
   const [thinking, setThinking] = useState(false);
   const npcRunning = useRef(false);
+  const primaryModelId = settings.modelIds[0] ?? defaultSettings.modelIds[0];
 
   useEffect(() => {
     if (state) saveGame(state, history, settings, v2Tracking);
@@ -145,9 +187,9 @@ export default function App() {
       (settings.assistMode === "analysis" ||
         settings.difficulty === "expert")
     ) {
-      warmAi();
+      warmAi(primaryModelId);
     }
-  }, [screen, settings.assistMode, settings.difficulty]);
+  }, [screen, settings.assistMode, settings.difficulty, primaryModelId]);
 
   useEffect(() => {
     if (
@@ -195,6 +237,8 @@ export default function App() {
             playerIndex,
             nextState,
             nextV2Tracking,
+            nextHistory,
+            primaryModelId,
           );
           nextV2Tracking = replayV2Actions(
             nextState,
@@ -284,7 +328,7 @@ export default function App() {
       }
     };
     void run();
-  }, [state, history, settings.difficulty, v2Tracking]);
+  }, [state, history, settings.difficulty, primaryModelId, v2Tracking]);
 
   const startNew = () => {
     if (state && !window.confirm("保存中の対局を上書きして新しく始めますか？")) {
@@ -357,6 +401,39 @@ export default function App() {
               AI分析モード
             </label>
           </fieldset>
+          <fieldset className="model-picker">
+            <legend>AI models ({settings.modelIds.length}/5)</legend>
+            <div className="model-options">
+              {PLAYABLE_MODEL_SPECS.map((spec) => (
+                <label key={spec.id}>
+                  <input
+                    type="checkbox"
+                    checked={settings.modelIds.includes(spec.id)}
+                    disabled={
+                      !settings.modelIds.includes(spec.id) &&
+                      settings.modelIds.length >= 5
+                    }
+                    onChange={(event) =>
+                      setSettings((value) => {
+                        if (event.target.checked) {
+                          return {
+                            ...value,
+                            modelIds: [...value.modelIds, spec.id].slice(0, 5),
+                          };
+                        }
+                        const next = value.modelIds.filter((id) => id !== spec.id);
+                        return {
+                          ...value,
+                          modelIds: next.length ? next : value.modelIds,
+                        };
+                      })
+                    }
+                  />
+                  <span>{spec.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <button type="button" className="primary" onClick={startNew}>
             新しいゲーム
           </button>
@@ -387,10 +464,21 @@ export default function App() {
   const legalPositionKeys = new Set(
     selectedActions.map((action) => positionKey(action.position)),
   );
+  const visibleModels = comparison?.models.filter(
+    (model) => model.spec.id !== "preplay-v1-current",
+  );
+  const firstSuccessfulModel = visibleModels?.find(
+    (model) => model.status === "ok",
+  );
+  const [previewModelId, previewChoice] =
+    preview === "own" ? ["", "own"] : preview.split(":");
+  const previewModel =
+    visibleModels?.find((model) => model.spec.id === previewModelId) ??
+    firstSuccessfulModel;
   const shownEvaluation =
-    preview === "own"
-      ? comparison?.own
-      : comparison?.top[Number(preview.slice(3))];
+    previewChoice === "own"
+      ? previewModel?.own
+      : previewModel?.top[Number(previewChoice?.slice(3))];
   const placementPreviewBoard = selectedFrameAction
     ? (() => {
         const key = positionKey(selectedFrameAction.position);
@@ -407,6 +495,10 @@ export default function App() {
   const shownBoard =
     shownEvaluation?.candidate.state.board ??
     placementPreviewBoard;
+  const shownHand =
+    shownEvaluation
+      ? handBeforeRefill(state, shownEvaluation.candidate.actions)
+      : pending.players[0].hand;
   const shownPlacements = (
     shownEvaluation?.candidate.actions ??
     (selectedFrameAction
@@ -447,28 +539,47 @@ export default function App() {
           })()
         : null;
   const plannedRefillOptions = plannedRefillState
-    ? refillActions(plannedRefillState).filter(
-        (action) =>
-          pendingActions.length !== 2 || action.source !== "none",
-      )
+    ? refillActions(plannedRefillState)
     : [];
   const canCompletePendingMove =
     pendingActions.length > 0 &&
     (!plannedRefillState ||
       (plannedRefillOptions.length > 0 && Boolean(plannedRefill)));
 
+  const comparePlacement = (left: PlaceCardAction, right: PlaceCardAction) => {
+    const leftKey = placementSortKey(pending, left);
+    const rightKey = placementSortKey(pending, right);
+    for (let index = 0; index < Math.max(leftKey.length, rightKey.length); index += 1) {
+      const difference = (leftKey[index] ?? 0) - (rightKey[index] ?? 0);
+      if (difference) return difference;
+    }
+    return 0;
+  };
+
+  const commitPlacement = (action: PlaceCardAction) => {
+    const nextPendingState = applyKnownLegalAction(pending, action);
+    const nextPendingActions = [...pendingActions, action];
+    setPendingState(nextPendingState);
+    setPendingActions(nextPendingActions);
+    setSelectedHandIndex(null);
+    setFrameChoices([]);
+    setSelectedFrameAction(null);
+    setPlannedRefill(null);
+    setComparison(null);
+  };
+
   const choosePosition = (x: number, y: number) => {
     const choices = selectedActions.filter(
       (action) => action.position.x === x && action.position.y === y,
     );
+    const bestChoice = [...choices].sort(comparePlacement)[0] ?? null;
+    if (!bestChoice) return;
+    if (!manualFrameSelection) {
+      commitPlacement(bestChoice);
+      return;
+    }
     setFrameChoices(choices);
-    setSelectedFrameAction(
-      [...choices].sort(
-        (left, right) =>
-          placementSortKey(pending, left)[0] -
-          placementSortKey(pending, right)[0],
-      )[0] ?? null,
-    );
+    setSelectedFrameAction(bestChoice);
   };
 
   const chooseFrameAnchor = (x: number, y: number) => {
@@ -480,14 +591,7 @@ export default function App() {
 
   const confirmFrame = () => {
     if (!selectedFrameAction) return;
-    const nextPendingState = applyKnownLegalAction(pending, selectedFrameAction);
-    const nextPendingActions = [...pendingActions, selectedFrameAction];
-    setPendingState(nextPendingState);
-    setPendingActions(nextPendingActions);
-    setSelectedHandIndex(null);
-    setFrameChoices([]);
-    setSelectedFrameAction(null);
-    setComparison(null);
+    commitPlacement(selectedFrameAction);
   };
 
   const resetOwnMove = () => {
@@ -513,28 +617,32 @@ export default function App() {
     );
     if (!ownCandidate) return;
     setThinking(true);
-    setMessage("候補手を比較しています…");
+    setMessage(`${settings.modelIds.length}モデルで候補手を比較しています…`);
     try {
       const candidates = enumerateTurnCandidates(state, history);
-      const evaluations = await evaluateCandidates(
-        [...candidates, ownCandidate],
+      const models = await evaluateAllModels(
+        candidates,
+        ownCandidate,
         0,
         state,
         v2Tracking,
+        history,
+        settings.modelIds,
       );
-      const own = evaluations.at(-1);
-      if (!own) throw new Error("自分の手を評価できません");
-      const all = evaluations.slice(0, -1);
-      const top = topDistinctCandidateEvaluations(state, all, 3);
-      setComparison({ own, top, all });
-      setPreview("own");
-      setMessage("");
-    } catch (error) {
+      if (!models.some((model) => model.status === "ok")) {
+        throw new Error("すべてのモデルで分析に失敗しました");
+      }
+      setComparison({ models });
+      const first = models.find((model) => model.status === "ok");
+      setPreview(first ? `${first.spec.id}:own` : "own");
+      const failures = models.filter((model) => model.status === "error").length;
       setMessage(
-        error instanceof AiTimeoutError
-          ? "AI分析が10秒を超えました。この手は分析なしで確定できます。"
-          : "AI分析を利用できません。この手は分析なしで確定できます。",
+        failures
+          ? `${failures}モデルは利用できませんでした。残りの結果を表示します。`
+          : "",
       );
+    } catch (error) {
+      setMessage("AI分析を利用できません。この手は分析なしで確定できます。");
     } finally {
       setThinking(false);
     }
@@ -555,12 +663,12 @@ export default function App() {
 
   const exportComparison = async () => {
     if (!comparison) return;
-    let modelMetadata: unknown = null;
+    let registry: { models?: Array<{ id: string }> } | null = null;
     try {
       const response = await fetch(
-        `${import.meta.env.BASE_URL}models/win_value_v2.json`,
+        `${import.meta.env.BASE_URL}models/registry.json`,
       );
-      if (response.ok) modelMetadata = await response.json();
+      if (response.ok) registry = await response.json();
     } catch {
       // The rest of the audit data remains fully downloadable offline.
     }
@@ -580,6 +688,9 @@ export default function App() {
       ),
       actions: evaluation.candidate.actions,
       historyAfter: evaluation.candidate.history,
+      // Keep the hand at the decision boundary separate from resultingState,
+      // which may already contain randomly drawn refill cards.
+      preRefillHand: handBeforeRefill(state, evaluation.candidate.actions),
       ...(includeResultState
         ? { resultingState: evaluation.candidate.state }
         : {}),
@@ -588,39 +699,54 @@ export default function App() {
     downloadJson(
       `yellowstone-analysis-${exportedAt.toISOString().replace(/[:.]/g, "-")}.json`,
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         exportedAt: exportedAt.toISOString(),
         application: {
           name: "yellowstone-browser",
           version: "0.1.0",
         },
-        model: {
+        runtime: {
           runtime: "onnxruntime-web",
-          modelPath: "models/win_value_v2.onnx",
-          metadata: modelMetadata,
+          registry,
         },
         settings,
         turnStartState: state,
         recentHistory: history,
         v2Tracking,
-        playerSelection: {
-          plannedRefill,
-          evaluation: serializeEvaluation(comparison.own, true),
-        },
-        aiTop3: comparison.top.map((value) =>
-          serializeEvaluation(value, true),
-        ),
-        allAiCandidates: comparison.all.map((value) =>
-          serializeEvaluation(value),
-        ),
+        plannedRefill,
+        modelResults: comparison.models.map((model) => ({
+          modelId: model.spec.id,
+          label: model.spec.label,
+          scoreKind: model.spec.scoreKind,
+          ...(model.spec.encoder === "privileged"
+            ? {
+                scoreMeaning: "preplay_win_probability_before_action_and_refill",
+                candidateMeaning: "legal_turn_plan_attached_for_comparison_only",
+              }
+            : {}),
+          status: model.status,
+          error: model.error,
+          playerSelection: model.own
+            ? serializeEvaluation(model.own, true)
+            : null,
+          aiTop3: model.top.map((value) =>
+            serializeEvaluation(value, true),
+          ),
+          allAiCandidates: model.all.map((value) =>
+            serializeEvaluation(value),
+          ),
+        })),
       },
     );
   };
 
   const humanRefills = isHumanTurn ? refillActions(state) : [];
+  const selectedModel =
+    PLAYABLE_MODEL_SPECS.find((spec) => spec.id === primaryModelId) ??
+    PLAYABLE_MODEL_SPECS[0];
 
   return (
-    <main className="game-page">
+    <main className={`game-page${comparison ? " is-comparing-page" : ""}`}>
       <header className="game-header">
         <div>
           <p className="eyebrow">4 PLAYER GAME</p>
@@ -629,6 +755,8 @@ export default function App() {
         <div className="header-actions">
           <span>{settings.difficulty === "expert" ? "強化NPC" : "通常NPC"}</span>
           <span>{settings.assistMode === "analysis" ? "AI分析" : "分析なし"}</span>
+          <span>{settings.modelIds.length} AI models</span>
+          <span>NPC: {selectedModel.label}</span>
           <button type="button" className="text-button" onClick={() => setScreen("details")}>
             詳細
           </button>
@@ -677,7 +805,7 @@ export default function App() {
           </button>
         </section>
       ) : (
-        <div className="game-layout">
+        <div className={`game-layout${comparison ? " is-comparing" : ""}`}>
           <section className="board-panel">
             <Board
               board={shownBoard}
@@ -744,8 +872,28 @@ export default function App() {
                     <h2>あなたの手</h2>
                     <span>{pendingActions.length}/2枚</span>
                   </div>
+                  <div className="frame-mode">
+                    <span>Frame選択</span>
+                    <button
+                      type="button"
+                      className={manualFrameSelection ? "selected" : ""}
+                      aria-pressed={manualFrameSelection}
+                      onClick={() => {
+                        setManualFrameSelection((value) => {
+                          const next = !value;
+                          if (!next) {
+                            setFrameChoices([]);
+                            setSelectedFrameAction(null);
+                          }
+                          return next;
+                        });
+                      }}
+                    >
+                      {manualFrameSelection ? "ON" : "OFF"}
+                    </button>
+                  </div>
                   <Hand
-                    cards={pending.players[0].hand}
+                    cards={shownHand}
                     selectedIndex={selectedHandIndex}
                     disabled={Boolean(comparison) || thinking || pending.phase === "refill"}
                     onSelect={(index) => {
@@ -817,66 +965,154 @@ export default function App() {
 
                 {comparison && (
                   <section className="comparison">
-                    <h2>勝率を比較</h2>
-                    <div className="comparison-cards">
-                      {[
-                        {
-                          key: "own" as const,
-                          label: "あなたの手",
-                          value: comparison.own,
-                        },
-                        ...comparison.top.map((value, index) => ({
-                          key: `ai-${index}` as const,
-                          label: `AI ${index + 1}位`,
-                          value,
-                        })),
-                      ].map(({ key, label, value }) => {
-                        const difference =
-                          (value.probability -
-                            comparison.own.probability) *
-                          100;
-                        const sameCards =
-                          key !== "own" &&
-                          playedCardsSignature(
-                            state,
-                            value.candidate.actions,
-                          ) ===
-                            playedCardsSignature(
-                              state,
-                              comparison.own.candidate.actions,
-                            );
-                        const sameRefill =
-                          candidateRefillDecision(value.candidate.actions) ===
-                          candidateRefillDecision(
-                            comparison.own.candidate.actions,
-                          );
-                        return (
-                          <button
-                            type="button"
-                            key={key}
-                            className={preview === key ? "selected" : ""}
-                            onClick={() => setPreview(key)}
-                          >
-                            <span>{label}</span>
-                            <strong>{roundedProbability(value.probability)}</strong>
-                            <small>{describePlan(state, value.candidate.actions)}</small>
-                            {sameCards && (
-                              <b className="same-cards">
-                                {sameRefill
-                                  ? "同じカード"
-                                  : "同じカード・補充違い"}
-                              </b>
+                    <div className="comparison-heading">
+                      <h2>{comparison.models.length}モデル比較</h2>
+                      <span>候補を選ぶと盤面にプレビューします</span>
+                      {(() => {
+                        const preplay = comparison.models.find(
+                          (model) => model.spec.id === "preplay-v1-current",
+                        )?.own;
+                        return preplay ? (
+                          <strong className="preplay-summary">
+                            Pre-play（補充前）: {(preplay.probability * 100).toFixed(1)}%
+                          </strong>
+                        ) : null;
+                      })()}
+                    </div>
+                    <div className="comparison-column-headings" aria-hidden="true">
+                      <span>モデル</span>
+                      <span>あなた</span>
+                      <span>AI 1位</span>
+                      <span>AI 2位</span>
+                      <span>AI 3位</span>
+                    </div>
+                    <div className="model-comparisons">
+                      {visibleModels?.map((model) => (
+                        <article className="model-comparison" key={model.spec.id}>
+                          <header className="model-identity">
+                            <h3>{model.spec.label}</h3>
+                            {model.spec.encoder === "privileged" && (
+                              <small className="model-note model-note-privileged">
+                                Pre-play: 補充前の状態から推定した勝率。候補手は比較表示用で、手自体は入力していません。
+                              </small>
                             )}
-                            {key !== "own" && (
-                              <em>
-                                {Math.abs(difference) < 1
-                                  ? "差は1ポイント未満"
-                                  : `${difference > 0 ? "+" : ""}${Math.round(difference)}ポイント`}
-                              </em>
+                            <span>
+                              {model.spec.scoreKind === "delta"
+                                ? "改善度（勝率ではありません）"
+                                : "推定勝率"}
+                            </span>
+                            {(model.spec.encoder === "v1" ||
+                              model.spec.encoder === "privileged" ||
+                              model.spec.scoreKind === "delta") && (
+                              <small className="model-note">
+                                補充方法は評価対象外
+                              </small>
                             )}
-                          </button>
-                        );
-                      })}
+                          </header>
+                          {model.status === "error" || !model.own ? (
+                            <p className="model-error">{model.error}</p>
+                          ) : (
+                            <>
+                              <div className="comparison-cards">
+                                {[
+                                  {
+                                    key: `${model.spec.id}:own` as Preview,
+                                    label: "あなたの手",
+                                    value: model.own,
+                                  },
+                                  ...model.top.map((value, index) => ({
+                                    key: `${model.spec.id}:ai-${index}` as Preview,
+                                    label: `AI ${index + 1}位`,
+                                    value,
+                                  })),
+                                ].map(({ key, label, value }) => {
+                                  const difference =
+                                    (value.probability -
+                                      model.own!.probability) *
+                                    100;
+                                  const sameCards =
+                                    !key.endsWith(":own") &&
+                                    playedCardsSignature(
+                                      state,
+                                      value.candidate.actions,
+                                    ) ===
+                                      playedCardsSignature(
+                                        state,
+                                        model.own!.candidate.actions,
+                                      );
+                                  const sameRefill =
+                                    candidateRefillDecision(
+                                      value.candidate.actions,
+                                    ) ===
+                                    candidateRefillDecision(
+                                      model.own!.candidate.actions,
+                                    );
+                                  const planDescription = describePlan(
+                                    state,
+                                    value.candidate.actions,
+                                  );
+                                  const beforePlayer = state.players[0];
+                                  const afterPlayer = value.candidate.state.players[0];
+                                  const bonus = Math.max(
+                                    0,
+                                    beforePlayer.lossScore - afterPlayer.lossScore,
+                                  );
+                                  const penalty = Math.max(
+                                    0,
+                                    afterPlayer.negativeCards.length -
+                                      beforePlayer.negativeCards.length,
+                                  );
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={key}
+                                      className={preview === key ? "selected" : ""}
+                                      onClick={() => setPreview(key)}
+                                    >
+                                      <span>{label}</span>
+                                      <strong>
+                                        {formattedScore(
+                                          value.probability,
+                                          model.spec.scoreKind,
+                                        )}
+                                      </strong>
+                                      <small title={planDescription}>
+                                        {planDescription}
+                                      </small>
+                                      {(bonus !== 0 || penalty !== 0) && (
+                                        <span className="candidate-effects">
+                                          {bonus !== 0 && (
+                                            <b className="candidate-bonus">+{bonus}</b>
+                                          )}
+                                          {penalty !== 0 && (
+                                            <b className="candidate-penalty">-{penalty}</b>
+                                          )}
+                                        </span>
+                                      )}
+                                      {sameCards && (
+                                        <b className="same-cards">
+                                          {sameRefill
+                                            ? "同じカード"
+                                            : "同じカード・補充違い"}
+                                        </b>
+                                      )}
+                                      {!key.endsWith(":own") && (
+                                        <em>
+                                          {difference > 0 ? "+" : ""}
+                                          {difference.toFixed(1)}
+                                          {model.spec.scoreKind === "delta"
+                                            ? "pt"
+                                            : "ポイント"}
+                                        </em>
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </>
+                          )}
+                        </article>
+                      ))}
                     </div>
                     <button
                       type="button"

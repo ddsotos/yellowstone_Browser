@@ -1,245 +1,67 @@
 # 検証データJSONの読み方
 
-AI分析画面の「検証データをダウンロード」を押すと、次のような名前のJSONファイルが保存されます。
-
-```text
-yellowstone-analysis-2026-07-26T08-32-35-123Z.json
-```
-
-このファイルには、AI分析を行った手番開始時の状態、自分が選んだ手、AI上位3択、
-AIが評価した全候補が入っています。表示された勝率や候補の選ばれ方に疑問がある場合に、
-分析結果を手元で確認・比較するためのデータです。
-
-## 最初に見る場所
-
-通常は、次の3項目を順に確認します。
-
-1. `playerSelection.evaluation`
-   - 自分が選んだ手と、その推定勝率です。
-2. `aiTop3`
-   - 画面に表示されたAI 1位から3位です。
-3. `allAiCandidates`
-   - AIが比較した全候補です。上位3択の選出過程を詳しく調べるときに使います。
-
-勝率は `probability` に0から1の数値で保存されます。たとえば `0.327` は32.7%です。
-画面では整数に丸めますが、順位付けにはJSON内の丸め前の数値を使います。
+AI分析画面の「検証データをダウンロード」は、5モデルの比較をschema version 2で保存します。
+表示は丸められますが、JSONの`probability`には順位付けに使ったfloat値が入ります。
 
 ## ルート項目
 
 | 項目 | 内容 |
 | --- | --- |
-| `schemaVersion` | この検証JSONの形式バージョンです。現在は `1` です。 |
-| `exportedAt` | ダウンロードした日時です。UTCのISO 8601形式です。 |
-| `application` | アプリ名とバージョンです。 |
-| `model` | 使用したAIランタイム、モデルの場所、モデル付属情報です。 |
-| `settings` | NPC難易度と分析表示モードです。 |
-| `turnStartState` | AI比較を始めた手番の完全なゲーム状態です。 |
-| `recentHistory` | AI入力に使う直近の配置履歴です。 |
-| `playerSelection` | プレイヤーが選んだ補充方法、手順、勝率、適用後状態です。 |
-| `aiTop3` | カード構成と補充判断で重複を除いたAI上位3択です。 |
-| `allAiCandidates` | AIが評価した全候補です。 |
+| `schemaVersion` | 現在は`2`です。 |
+| `exportedAt` | UTCの出力日時です。 |
+| `runtime.registry` | 使用モデル、入力契約、checkpoint hash、ONNX parityです。 |
+| `turnStartState` | 分析開始時の完全なゲーム状態です。 |
+| `recentHistory` | V1系に使うrolling配置履歴です。 |
+| `v2Tracking` | V2系に使う完了ターン・枠・公開マイナス情報です。 |
+| `plannedRefill` | プレイヤーが選んだ補充方法です。 |
+| `modelResults` | モデルごとの結果です。 |
 
-`model.metadata` は `public/models/win_value_v2.json` の内容です。ファイル取得に失敗した場合は
-`null` になりますが、ゲーム状態や候補評価には影響しません。
+検証用の`turnStartState`には対戦相手の手札と山札順も含まれますが、モデルadapterは
+各checkpointの入力契約に含まれる情報だけをtensor化します。action-deltaも相手の手札を使いません。
 
-## カードの表現
+## modelResults
 
-カードは次の形式です。
+各要素は次の形です。
 
 ```json
 {
-  "color": "blue",
-  "rankIndex": 4
+  "modelId": "v2-generation0-epoch001",
+  "label": "V2 gen0 epoch001",
+  "scoreKind": "probability",
+  "status": "ok",
+  "error": null,
+  "playerSelection": {},
+  "aiTop3": [],
+  "allAiCandidates": []
 }
 ```
 
-- `color`: `red`、`blue`、`green`、`yellow` のいずれかです。
-- `rankIndex`: 0始まりの数字です。画面に表示する数字は `rankIndex + 1` です。
+- `scoreKind: "probability"`の`probability`は0から1の推定勝率です。
+- `scoreKind: "delta"`では同じフィールドが次状態への改善度です。勝率ではなく、
+  画面では100倍して符号付きptとして表示します。
+- 1モデルのロードや推論だけが失敗した場合、その要素は`status: "error"`になり、
+  残りのモデル結果は保存されます。
 
-上の例は「青5」です。
+## 候補
 
-## ゲーム状態
+候補には`playedCardsSignature`、`refillDecision`、`candidateGroupSignature`、
+`actions`、`historyAfter`が入ります。自分の手とTop3には`resultingState`も入ります。
 
-`turnStartState` は、分析開始時点を再現する基礎データです。
+- Original V1 2モデルは補充直前の候補状態とrolling直近2配置を評価します。
+- V2とV2-liteは補充予定も入力し、カード組＋補充方法で候補をまとめます。
+- action-deltaは、他モデルによる事前選抜を行わず、列挙された全候補を評価します。
+  カード順と補充方法は差分候補の意味に含みません。
 
-| 項目 | 内容 |
-| --- | --- |
-| `players` | 各プレイヤーの手札、マイナスカード、現在の失点です。0番が人間です。 |
-| `board` | 盤面です。キーは `"x,y"`、値はそのマスに重なったカードの配列です。 |
-| `deck` | 山札です。配列の先頭が次に引くカードです。 |
-| `currentPlayerIndex` | 現在のプレイヤー番号です。人間の分析時は `0` です。 |
-| `phase` | `play`、`refill`、`game_over` のいずれかです。 |
-| `cardsPlayedThisTurn` | この手番ですでにプレイした枚数です。 |
-| `settlementCount` | 決算が起きた回数です。 |
-| `lastTurnPlayCounts` | 各プレイヤーが直前の手番でプレイした枚数です。 |
-| `randomState` | シャッフルを再現するための乱数状態です。 |
+カード配置の`handIndex`は各action実行直前の手札位置です。2枚目は
+`turnStartState`の同じindexを指すとは限らないため、`actions`を順番に適用してください。
 
-盤面座標の `x` と `y` はどちらも0から6です。`y` はカードの `rankIndex` と一致します。
-画面表示では、座標を人間向けの1から7へ変換しています。
-
-このJSONには対戦相手の手札と山札順も含まれます。AI入力の確認とゲームの再現を優先した
-検証用データです。
-
-## 手順の表現
-
-`actions` には、1手番で行う処理が実行順に並びます。
-
-### カードを置く
-
-```json
-{
-  "type": "place",
-  "handIndex": 2,
-  "position": { "x": 4, "y": 1 },
-  "frame": { "x": 2, "y": 0 }
-}
-```
-
-- `handIndex`: その処理の直前にある手札配列の0始まりの位置です。
-- `position`: カードを置く盤面座標です。
-- `frame`: 残す3×3枠の基準座標です。`x` から `x + 2`、`y` から `y + 2` が枠内です。
-
-1枚目を置くと手札配列が変わるため、2枚目の `handIndex` は
-`turnStartState.players[0].hand` の位置と直接一致しない場合があります。
-正確に読むには、`actions` を先頭から順番に適用してください。
-
-### 1枚で手番を終える
-
-```json
-{ "type": "end_turn" }
-```
-
-### 補充する・補充しない
-
-```json
-{ "type": "refill", "source": "deck" }
-```
-
-`source` の意味は次のとおりです。
-
-| 値 | 内容 |
-| --- | --- |
-| `deck` | 山札から手札上限まで補充します。 |
-| `negative_cards` | マイナスカードから手札を作ります。 |
-| `none` | 補充しません。 |
-
-2枚プレイ後の `source: "none"` は、勝率表示・AI上位3択・強化NPCの
-最善手選択の候補から除外されます。1枚プレイで手番を終え、補充処理自体が
-発生しない手は `refillDecision: "none"` の候補として残ります。
-
-## 評価データ
-
-プレイヤー選択とAI候補は、主に次の形で保存されます。
-
-```json
-{
-  "probability": 0.327,
-  "playedCardsSignature": "blue:1|yellow:5",
-  "refillDecision": "deck",
-  "candidateGroupSignature": "blue:1|yellow:5::refill:deck",
-  "actions": [],
-  "historyAfter": [],
-  "resultingState": {}
-}
-```
-
-| 項目 | 内容 |
-| --- | --- |
-| `probability` | モデルが推定した勝率です。0から1です。 |
-| `playedCardsSignature` | プレイするカード構成を比較するための内部表現です。 |
-| `refillDecision` | `deck`、`negative_cards`、`none` のいずれかです。 |
-| `candidateGroupSignature` | カード構成と補充判断を合わせた候補グループの識別子です。 |
-| `actions` | 配置、手番終了、補充を含む手順です。 |
-| `historyAfter` | この候補を適用した後にAI入力へ渡される直近履歴です。 |
-| `resultingState` | 候補を最後まで適用した状態です。自分の手とAI上位3択に入ります。 |
-
-`allAiCandidates` はデータ量を抑えるため `resultingState` を持ちません。
-`turnStartState` に `actions` を順番に適用すれば結果を再構築できます。
-
-## AI上位3択の選び方
-
-`playedCardsSignature` は、プレイしたカードを `色:rankIndex` で表し、
-順番を無視するために並べ替えて `|` で連結したものです。
-
-```text
-blue:1|yellow:5
-```
-
-これは「青2と黄6をプレイする」カード構成を表します。
-上位3択のグループ化には、補充判断を加えた `candidateGroupSignature` を使います。
-
-```text
-blue:1|yellow:5::refill:deck
-```
-
-次の違いは同じグループとして扱います。
-
-- 置く順番
-- 置く場所や残す3×3枠
-
-補充判断は別グループとして扱います。
-
-- `deck`: 山札から補充
-- `negative_cards`: マイナスカードから手札を作る
-- `none`: 1枚プレイ後など、補充処理が発生しない
-
-2枚プレイ後の `none` は候補生成時点で除外されるため、`allAiCandidates` と
-`aiTop3` には入りません。
-
-同じ `candidateGroupSignature` の候補から `probability` が最も高いものだけを代表として残し、
-代表を勝率順に並べた先頭3件が `aiTop3` です。
-プレイヤー選択と同じカードでも除外しないため、画面では「同じカード」または
-「同じカード・補充違い」と表示される場合があります。
-
-上位3択を検算する場合は、`allAiCandidates` を `candidateGroupSignature` ごとにまとめ、
-各グループの最大 `probability` を降順に並べてください。
-
-## PowerShellでの確認例
-
-ファイルを読み込みます。
+## PowerShell確認例
 
 ```powershell
 $data = Get-Content -Raw -Encoding utf8 ".\yellowstone-analysis-....json" |
   ConvertFrom-Json
+
+$data.modelResults |
+  Select-Object label, scoreKind, status,
+    @{n="own";e={$_.playerSelection.probability}}
 ```
-
-自分の推定勝率をパーセントで表示します。
-
-```powershell
-[math]::Round($data.playerSelection.evaluation.probability * 100, 2)
-```
-
-AI上位3択を表示します。
-
-```powershell
-$data.aiTop3 |
-  Select-Object playedCardsSignature, refillDecision,
-    @{Name="winRatePercent"; Expression={
-      [math]::Round($_.probability * 100, 2)
-    }},
-    actions
-```
-
-全候補から、カード構成と補充判断ごとの最高勝率を再計算します。
-
-```powershell
-$data.allAiCandidates |
-  Group-Object candidateGroupSignature |
-  ForEach-Object {
-    $_.Group | Sort-Object probability -Descending | Select-Object -First 1
-  } |
-  Sort-Object probability -Descending |
-  Select-Object -First 3 playedCardsSignature, refillDecision,
-    @{Name="winRatePercent"; Expression={
-      [math]::Round($_.probability * 100, 2)
-    }}
-```
-
-## 値を確認するときの注意点
-
-- `probability` は厳密な勝率計算ではなく、学習モデルによる推定値です。
-- 画面の整数表示とJSONの値がわずかに違う場合は、画面側の丸めによるものです。
-- 補充方法が違う候補は、同じカード構成でも上位3択の別グループとして扱います。
-- 同じカードを違う順番で出す場合も別グループにはなりません。
-- 候補の再評価には、JSON記載のモデルと同じモデルファイル、入力変換処理が必要です。
-- V2では `v2Tracking` の直近3手番、現在枠、公開マイナス情報も再評価に必要です。

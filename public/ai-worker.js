@@ -1,22 +1,37 @@
-/* Browser inference worker. Runtime is pinned; the model is served locally. */
+/* Browser inference worker. Runtime is pinned; every model is served locally. */
 const ORT_VERSION = "1.20.1";
 const ORT_ROOT = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
 importScripts(`${ORT_ROOT}ort.min.js`);
 
 self.ort.env.wasm.wasmPaths = ORT_ROOT;
 self.ort.env.wasm.numThreads = 1;
-let sessionPromise;
+const sessions = new Map();
 
 const sessionFor = (modelUrl) => {
-  sessionPromise ??= self.ort.InferenceSession.create(modelUrl, {
-    executionProviders: ["wasm"],
-    graphOptimizationLevel: "all",
-  });
-  return sessionPromise;
+  let session = sessions.get(modelUrl);
+  if (!session) {
+    session = self.ort.InferenceSession.create(modelUrl, {
+      executionProviders: ["wasm"],
+      graphOptimizationLevel: "all",
+    });
+    sessions.set(modelUrl, session);
+  }
+  return session;
 };
 
 self.addEventListener("message", async (event) => {
-  const { type, id, count, board, context, modelUrl } = event.data;
+  const {
+    type,
+    id,
+    count,
+    board,
+    context,
+    modelUrl,
+    boardChannels,
+    boardSize,
+    contextSize,
+    outputTransform,
+  } = event.data;
   try {
     if (type === "init") {
       await sessionFor(modelUrl);
@@ -27,24 +42,25 @@ self.addEventListener("message", async (event) => {
     const feeds = {
       board: new self.ort.Tensor("float32", new Float32Array(board), [
         count,
-        29,
-        7,
-        7,
+        boardChannels,
+        boardSize ?? 7,
+        boardSize ?? 7,
       ]),
       context: new self.ort.Tensor("float32", new Float32Array(context), [
         count,
-        300,
+        contextSize,
       ]),
     };
     const output = await session.run(feeds);
-    const logits = output.logit.data;
-    const probabilities = new Float32Array(logits.length);
-    for (let index = 0; index < logits.length; index += 1) {
-      probabilities[index] = 1 / (1 + Math.exp(-logits[index]));
+    const raw = output.score.data;
+    const scores = new Float32Array(raw.length);
+    for (let index = 0; index < raw.length; index += 1) {
+      scores[index] =
+        outputTransform === "sigmoid"
+          ? 1 / (1 + Math.exp(-raw[index]))
+          : raw[index];
     }
-    self.postMessage({ id, probabilities: probabilities.buffer }, [
-      probabilities.buffer,
-    ]);
+    self.postMessage({ id, scores: scores.buffer }, [scores.buffer]);
   } catch (error) {
     self.postMessage({
       id,
