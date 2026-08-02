@@ -97,6 +97,18 @@ const defaultSettings: Settings = {
   ],
 };
 
+const publicModelSpecs = MODEL_SPECS.filter(
+  (spec) => !spec.encoder.startsWith("privileged"),
+);
+
+const sanitizePublicModelIds = (modelIds: ModelId[]): ModelId[] => {
+  const allowed = new Set(publicModelSpecs.map((spec) => spec.id));
+  const selected = modelIds.filter((id) => allowed.has(id)).slice(0, 5);
+  return selected.length
+    ? selected
+    : defaultSettings.modelIds.filter((id) => allowed.has(id));
+};
+
 const cardName = (action: PlaceCardAction, before: GameState): string => {
   const card = before.players[before.currentPlayerIndex].hand[action.handIndex];
   const colors = { red: "赤", blue: "青", green: "緑", yellow: "黄" };
@@ -208,8 +220,11 @@ export default function App() {
   const [onlineName, setOnlineName] = useState("");
   const [onlineMessage, setOnlineMessage] = useState("");
   const npcRunning = useRef(false);
+  const activeModelIds = isOnline
+    ? sanitizePublicModelIds(settings.modelIds)
+    : settings.modelIds;
   const primaryPlayableModelId =
-    settings.modelIds.find((id) =>
+    activeModelIds.find((id) =>
       PLAYABLE_MODEL_SPECS.some((spec) => spec.id === id),
     ) ?? PLAYABLE_MODEL_SPECS[0].id;
   const isPreplayModel = (model: ModelAnalysis) =>
@@ -578,6 +593,65 @@ export default function App() {
             </label>
           </fieldset>
 
+          <fieldset>
+            <legend>AI分析</legend>
+            <label>
+              <input
+                type="radio"
+                checked={settings.assistMode === "none"}
+                onChange={() =>
+                  setSettings((value) => ({ ...value, assistMode: "none" }))
+                }
+              />
+              使わない
+            </label>
+            <label>
+              <input
+                type="radio"
+                checked={settings.assistMode === "analysis"}
+                onChange={() =>
+                  setSettings((value) => ({ ...value, assistMode: "analysis" }))
+                }
+              />
+              各モデル勝率を表示
+            </label>
+          </fieldset>
+
+          <fieldset className="model-picker">
+            <legend>Online AI models ({activeModelIds.length}/5)</legend>
+            <div className="model-options">
+              {publicModelSpecs.map((spec) => (
+                <label key={spec.id}>
+                  <input
+                    type="checkbox"
+                    checked={activeModelIds.includes(spec.id)}
+                    disabled={
+                      !activeModelIds.includes(spec.id) &&
+                      activeModelIds.length >= 5
+                    }
+                    onChange={(event) =>
+                      setSettings((value) => {
+                        const current = sanitizePublicModelIds(value.modelIds);
+                        if (event.target.checked) {
+                          return {
+                            ...value,
+                            modelIds: [...current, spec.id].slice(0, 5),
+                          };
+                        }
+                        const next = current.filter((id) => id !== spec.id);
+                        return {
+                          ...value,
+                          modelIds: next.length ? next : current,
+                        };
+                      })
+                    }
+                  />
+                  <span>{spec.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
           {onlineMessage && <p className="notice">{onlineMessage}</p>}
           <button
             type="button"
@@ -937,7 +1011,7 @@ export default function App() {
     );
     if (!ownCandidate) return;
     setThinking(true);
-    setMessage(`${settings.modelIds.length}モデルで候補手を比較しています…`);
+    setMessage(`${activeModelIds.length}モデルで候補手を比較しています…`);
     try {
       const candidates = enumerateTurnCandidates(state, history);
       const models = await evaluateAllModels(
@@ -947,7 +1021,7 @@ export default function App() {
         state,
         v2Tracking,
         history,
-        settings.modelIds,
+        activeModelIds,
       );
       if (!models.some((model) => model.status === "ok")) {
         throw new Error("すべてのモデルで分析に失敗しました");
@@ -1099,7 +1173,7 @@ export default function App() {
         <div className="header-actions">
           <span>{settings.difficulty === "expert" ? "強化NPC" : "通常NPC"}</span>
           <span>{settings.assistMode === "analysis" ? "AI分析" : "分析なし"}</span>
-          <span>{settings.modelIds.length} AI models</span>
+          <span>{activeModelIds.length} AI models</span>
           <span>NPC: {selectedModel.label}</span>
           {isOnline && activeOnlineGame && (
             <span>
