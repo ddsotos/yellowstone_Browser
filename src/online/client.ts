@@ -94,6 +94,17 @@ export const createOnlineGame = (
 export const joinOnlineGame = (sessionId: string, gameId: string) =>
   requestJson<{ lobby: OnlineLobby }>("/api/online/join", { sessionId, gameId });
 
+export const setOnlineCpuDifficulty = (
+  sessionId: string,
+  gameId: string,
+  cpuDifficulty: Difficulty,
+) =>
+  requestJson<{ lobby: OnlineLobby }>("/api/online/cpu-difficulty", {
+    sessionId,
+    gameId,
+    cpuDifficulty,
+  });
+
 export const kickOnlineSeat = (
   sessionId: string,
   gameId: string,

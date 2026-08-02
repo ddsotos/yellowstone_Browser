@@ -290,6 +290,16 @@ const joinGame = async (session, body) => {
   return game;
 };
 
+const setCpuDifficulty = async (session, body) => {
+  const game = findGame(body.gameId);
+  if (game.hostSessionId !== session.id) throw new Error("Only the host can change CPU difficulty.");
+  if (game.status !== "waiting") throw new Error("CPU difficulty cannot be changed after game start.");
+  game.cpuDifficulty = body.cpuDifficulty === "expert" ? "expert" : "standard";
+  game.revision += 1;
+  await changed();
+  return game;
+};
+
 const kickSeat = async (session, body) => {
   const game = findGame(body.gameId);
   if (game.hostSessionId !== session.id) throw new Error("ホストだけが削除できます。");
@@ -486,6 +496,7 @@ const route = async (request, response, vite) => {
     let game;
     if (url.pathname === "/api/online/create") game = await createGame(session, body);
     else if (url.pathname === "/api/online/join") game = await joinGame(session, body);
+    else if (url.pathname === "/api/online/cpu-difficulty") game = await setCpuDifficulty(session, body);
     else if (url.pathname === "/api/online/kick") game = await kickSeat(session, body);
     else if (url.pathname === "/api/online/delete") game = await deleteGame(session, body);
     else if (url.pathname === "/api/online/start") game = await startGame(engine, session, body);

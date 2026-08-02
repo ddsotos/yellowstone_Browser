@@ -65,6 +65,7 @@ import {
   onlineEnabled,
   savedSessionId,
   saveSessionId,
+  setOnlineCpuDifficulty,
   startOnlineGame,
   submitOnlineTurn,
 } from "./online/client";
@@ -251,6 +252,7 @@ export default function App() {
   const onlineCanHost =
     activeOnlineGame?.hostSessionId === onlineSession?.id &&
     activeOnlineGame?.status === "waiting";
+  const currentTurnName = activeOnlineGame?.seats[state?.currentPlayerIndex ?? 0]?.name;
 
   useEffect(() => {
     if (state && !isOnline) saveGame(state, history, settings, v2Tracking);
@@ -291,6 +293,29 @@ export default function App() {
       setOnlineMessage("オンライン接続が切れました。再接続中です。");
     };
     return () => source.close();
+  }, [isOnline, onlineSession?.id]);
+
+  useEffect(() => {
+    if (!isOnline || !onlineSession) return;
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const value = await bootstrapOnline(onlineSession.id);
+        if (disposed) return;
+        if (value.session) {
+          setOnlineSession(value.session);
+          saveSessionId(value.session.id);
+        }
+        setOnlineLobby(value.lobby);
+      } catch {
+        // EventSource is primary; polling is a best-effort fallback.
+      }
+    };
+    const interval = window.setInterval(() => void refresh(), 2000);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
   }, [isOnline, onlineSession?.id]);
 
   useEffect(() => {
@@ -509,7 +534,7 @@ export default function App() {
       const value = await createOnlineGame(
         onlineSession.id,
         `${onlineSession.name} table`,
-        settings.difficulty,
+        "standard",
       );
       setOnlineLobby(value.lobby);
     } catch (error) {
@@ -522,6 +547,24 @@ export default function App() {
     setOnlineMessage("");
     try {
       const value = await joinOnlineGame(onlineSession.id, game.id);
+      setOnlineLobby(value.lobby);
+    } catch (error) {
+      setOnlineMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const updateTableCpuDifficulty = async (
+    game: OnlineGame,
+    cpuDifficulty: Difficulty,
+  ) => {
+    if (!onlineSession) return;
+    setOnlineMessage("");
+    try {
+      const value = await setOnlineCpuDifficulty(
+        onlineSession.id,
+        game.id,
+        cpuDifficulty,
+      );
       setOnlineLobby(value.lobby);
     } catch (error) {
       setOnlineMessage(error instanceof Error ? error.message : String(error));
@@ -611,30 +654,6 @@ export default function App() {
           </fieldset>
 
           <fieldset>
-            <legend>CPU難易度</legend>
-            <label>
-              <input
-                type="radio"
-                checked={settings.difficulty === "standard"}
-                onChange={() =>
-                  setSettings((value) => ({ ...value, difficulty: "standard" }))
-                }
-              />
-              通常CPU
-            </label>
-            <label>
-              <input
-                type="radio"
-                checked={settings.difficulty === "expert"}
-                onChange={() =>
-                  setSettings((value) => ({ ...value, difficulty: "expert" }))
-                }
-              />
-              強化CPU
-            </label>
-          </fieldset>
-
-          <fieldset>
             <legend>AI分析</legend>
             <label>
               <input
@@ -710,6 +729,9 @@ export default function App() {
               const joined = game.seats.some(
                 (seat) => seat?.sessionId === onlineSession?.id,
               );
+              const canManageGame =
+                game.hostSessionId === onlineSession?.id &&
+                game.status === "waiting";
               const humanSeats = game.seats.filter((seat) => seat?.kind === "human");
               const canDeleteGame =
                 game.hostSessionId === onlineSession?.id ||
@@ -722,6 +744,31 @@ export default function App() {
                     <strong>{game.name}</strong>
                     <span>{game.status === "waiting" ? "募集中" : "対局中"}</span>
                   </header>
+                  <fieldset>
+                    <legend>CPU difficulty</legend>
+                    <label>
+                      <input
+                        type="radio"
+                        checked={game.cpuDifficulty === "standard"}
+                        disabled={!canManageGame}
+                        onChange={() =>
+                          void updateTableCpuDifficulty(game, "standard")
+                        }
+                      />
+                      standard
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        checked={game.cpuDifficulty === "expert"}
+                        disabled={!canManageGame}
+                        onChange={() =>
+                          void updateTableCpuDifficulty(game, "expert")
+                        }
+                      />
+                      expert
+                    </label>
+                  </fieldset>
                   <div className="online-seats">
                     {game.seats.map((seat, index) => (
                       <span key={index} className={seat ? "filled" : ""}>
@@ -1227,7 +1274,12 @@ export default function App() {
           <h1>Yellowstone park</h1>
         </div>
         <div className="header-actions">
-          <span>{settings.difficulty === "expert" ? "強化NPC" : "通常NPC"}</span>
+          <span>
+            {(isOnline ? activeOnlineGame?.cpuDifficulty : settings.difficulty) ===
+            "expert"
+              ? "強化NPC"
+              : "通常NPC"}
+          </span>
           <span>{settings.assistMode === "analysis" ? "AI分析" : "分析なし"}</span>
           <span>{activeModelIds.length} AI models</span>
           <span>NPC: {selectedModel.label}</span>
@@ -1312,7 +1364,9 @@ export default function App() {
             {!isHumanTurn && (
               <div className="turn-status">
                 <span className={thinking ? "spinner" : ""} />
-                NPCのターンです
+                {isOnline && currentTurnName
+                  ? `${currentTurnName}のターンです`
+                  : "NPCのターンです"}
               </div>
             )}
 
