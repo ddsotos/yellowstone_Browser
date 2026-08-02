@@ -8,3 +8,5 @@ coverage/
 test-artifacts/
 *.tsbuildinfo
 __pycache__/
+local-data/
+vite.*.log

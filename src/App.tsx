@@ -50,6 +50,22 @@ import {
   saveGame,
   Settings,
 } from "./storage";
+import {
+  bootstrapOnline,
+  clearSessionId,
+  createOnlineGame,
+  joinOnlineGame,
+  kickOnlineSeat,
+  loginOnline,
+  OnlineGame,
+  OnlineLobby,
+  OnlineSession,
+  onlineEnabled,
+  savedSessionId,
+  saveSessionId,
+  startOnlineGame,
+  submitOnlineTurn,
+} from "./online/client";
 
 type Screen = "home" | "game" | "details";
 type Preview = "own" | `${string}:own` | `${string}:ai-${number}`;
@@ -57,6 +73,17 @@ type Preview = "own" | `${string}:own` | `${string}:ai-${number}`;
 interface Comparison {
   models: ModelAnalysis[];
 }
+
+const seatName = (
+  index: number,
+  lobby: OnlineLobby | null,
+  session: OnlineSession | null,
+): string => {
+  const seat = lobby?.games
+    .flatMap((game) => game.seats)
+    .find((candidate) => candidate?.index === index && candidate.sessionId === session?.id);
+  return seat?.name ?? (index === 0 ? "あなた" : `NPC ${index}`);
+};
 
 const defaultSettings: Settings = {
   difficulty: "standard",
@@ -136,6 +163,7 @@ const downloadJson = (filename: string, value: unknown): void => {
 };
 
 export default function App() {
+  const isOnline = useMemo(onlineEnabled, []);
   const savedAtStart = useMemo(loadGame, []);
   const initialSettings = useMemo((): Settings => {
     const saved = savedAtStart?.settings;
@@ -175,6 +203,10 @@ export default function App() {
   const [preview, setPreview] = useState<Preview>("own");
   const [message, setMessage] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [onlineSession, setOnlineSession] = useState<OnlineSession | null>(null);
+  const [onlineLobby, setOnlineLobby] = useState<OnlineLobby | null>(null);
+  const [onlineName, setOnlineName] = useState("");
+  const [onlineMessage, setOnlineMessage] = useState("");
   const npcRunning = useRef(false);
   const primaryPlayableModelId =
     settings.modelIds.find((id) =>
@@ -183,9 +215,74 @@ export default function App() {
   const isPreplayModel = (model: ModelAnalysis) =>
     model.spec.encoder.startsWith("privileged");
 
+  const activeOnlineGame = onlineLobby?.games.find(
+    (game) => game.id === onlineLobby.activeGameId,
+  );
+  const ownOnlineSeat = activeOnlineGame?.seats.find(
+    (seat) => seat?.kind === "human" && seat.sessionId === onlineSession?.id,
+  );
+  const viewPlayerIndex = ownOnlineSeat?.index ?? 0;
+  const onlineCanHost =
+    activeOnlineGame?.hostSessionId === onlineSession?.id &&
+    activeOnlineGame?.status === "waiting";
+
   useEffect(() => {
-    if (state) saveGame(state, history, settings, v2Tracking);
-  }, [state, history, settings, v2Tracking]);
+    if (state && !isOnline) saveGame(state, history, settings, v2Tracking);
+  }, [state, history, settings, v2Tracking, isOnline]);
+
+  useEffect(() => {
+    if (!isOnline) return;
+    let disposed = false;
+    bootstrapOnline(savedSessionId())
+      .then((value) => {
+        if (disposed) return;
+        setOnlineSession(value.session);
+        setOnlineLobby(value.lobby);
+        setOnlineName(value.session?.name ?? "");
+      })
+      .catch((error) => {
+        if (!disposed) setOnlineMessage(String(error));
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [isOnline]);
+
+  useEffect(() => {
+    if (!isOnline || !onlineSession) return;
+    const source = new EventSource(
+      `/api/online/events?sessionId=${encodeURIComponent(onlineSession.id)}`,
+    );
+    source.onmessage = (event) => {
+      setOnlineLobby(JSON.parse(event.data) as OnlineLobby);
+    };
+    source.addEventListener("session", (event) => {
+      const session = JSON.parse((event as MessageEvent).data) as OnlineSession;
+      setOnlineSession(session);
+      saveSessionId(session.id);
+    });
+    source.onerror = () => {
+      setOnlineMessage("オンライン接続が切れました。再接続中です。");
+    };
+    return () => source.close();
+  }, [isOnline, onlineSession?.id]);
+
+  useEffect(() => {
+    if (!isOnline || !activeOnlineGame?.state || !activeOnlineGame.v2Tracking) {
+      return;
+    }
+    setState(activeOnlineGame.state);
+    setHistory(activeOnlineGame.history);
+    setV2Tracking(activeOnlineGame.v2Tracking);
+    setScreen("game");
+  }, [
+    isOnline,
+    activeOnlineGame?.id,
+    activeOnlineGame?.revision,
+    activeOnlineGame?.state,
+    activeOnlineGame?.history,
+    activeOnlineGame?.v2Tracking,
+  ]);
 
   useEffect(() => {
     if (
@@ -200,7 +297,7 @@ export default function App() {
   useEffect(() => {
     if (
       state?.phase === "play" &&
-      state.currentPlayerIndex === 0 &&
+      state.currentPlayerIndex === viewPlayerIndex &&
       state.cardsPlayedThisTurn === 0
     ) {
       setPendingState(state);
@@ -211,10 +308,11 @@ export default function App() {
       setPlannedRefill(null);
       setComparison(null);
     }
-  }, [state]);
+  }, [state, viewPlayerIndex]);
 
   useEffect(() => {
     if (
+      isOnline ||
       !state ||
       state.phase === "game_over" ||
       state.currentPlayerIndex === 0 ||
@@ -334,7 +432,14 @@ export default function App() {
       }
     };
     void run();
-  }, [state, history, settings.difficulty, primaryPlayableModelId, v2Tracking]);
+  }, [
+    isOnline,
+    state,
+    history,
+    settings.difficulty,
+    primaryPlayableModelId,
+    v2Tracking,
+  ]);
 
   const startNew = () => {
     if (state && !window.confirm("保存中の対局を上書きして新しく始めますか？")) {
@@ -348,8 +453,206 @@ export default function App() {
     setMessage("");
   };
 
+  const login = async () => {
+    setOnlineMessage("");
+    try {
+      const value = await loginOnline(onlineName, savedSessionId());
+      setOnlineSession(value.session);
+      saveSessionId(value.session.id);
+      setOnlineLobby(value.lobby);
+    } catch (error) {
+      setOnlineMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const createTable = async () => {
+    if (!onlineSession) return;
+    setOnlineMessage("");
+    try {
+      const value = await createOnlineGame(
+        onlineSession.id,
+        `${onlineSession.name} table`,
+        settings.difficulty,
+      );
+      setOnlineLobby(value.lobby);
+    } catch (error) {
+      setOnlineMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const joinTable = async (game: OnlineGame) => {
+    if (!onlineSession) return;
+    setOnlineMessage("");
+    try {
+      const value = await joinOnlineGame(onlineSession.id, game.id);
+      setOnlineLobby(value.lobby);
+    } catch (error) {
+      setOnlineMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const startTable = async () => {
+    if (!onlineSession || !activeOnlineGame) return;
+    setOnlineMessage("");
+    try {
+      const value = await startOnlineGame(onlineSession.id, activeOnlineGame.id);
+      setOnlineLobby(value.lobby);
+    } catch (error) {
+      setOnlineMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const kickSeat = async (seatIndex: number) => {
+    if (!onlineSession || !activeOnlineGame) return;
+    setOnlineMessage("");
+    try {
+      const value = await kickOnlineSeat(
+        onlineSession.id,
+        activeOnlineGame.id,
+        seatIndex,
+      );
+      setOnlineLobby(value.lobby);
+    } catch (error) {
+      setOnlineMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   if (screen === "details") {
     return <Details onBack={() => setScreen(state ? "game" : "home")} />;
+  }
+
+  if (isOnline && screen === "home") {
+    return (
+      <main className="home online-home">
+        <p className="eyebrow">ONLINE PLAY</p>
+        <h1>Yellowstone park</h1>
+        <p className="lead">名前でログインして、同じローカルサーバー上の卓に参加します。</p>
+        <div className="setup-card online-panel">
+          <fieldset className="online-login">
+            <legend>ログイン</legend>
+            <input
+              value={onlineName}
+              placeholder="名前"
+              onChange={(event) => setOnlineName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void login();
+              }}
+            />
+            <button type="button" className="primary" onClick={() => void login()}>
+              入る
+            </button>
+            {onlineSession && (
+              <button
+                type="button"
+                onClick={() => {
+                  clearSessionId();
+                  setOnlineSession(null);
+                }}
+              >
+                ログアウト
+              </button>
+            )}
+          </fieldset>
+
+          <fieldset>
+            <legend>CPU難易度</legend>
+            <label>
+              <input
+                type="radio"
+                checked={settings.difficulty === "standard"}
+                onChange={() =>
+                  setSettings((value) => ({ ...value, difficulty: "standard" }))
+                }
+              />
+              通常CPU
+            </label>
+            <label>
+              <input
+                type="radio"
+                checked={settings.difficulty === "expert"}
+                onChange={() =>
+                  setSettings((value) => ({ ...value, difficulty: "expert" }))
+                }
+              />
+              強化CPU
+            </label>
+          </fieldset>
+
+          {onlineMessage && <p className="notice">{onlineMessage}</p>}
+          <button
+            type="button"
+            className="primary"
+            disabled={!onlineSession || Boolean(onlineLobby?.activeGameId)}
+            onClick={() => void createTable()}
+          >
+            ゲームを作成
+          </button>
+
+          <section className="online-games">
+            <h2>ゲーム一覧</h2>
+            {!onlineLobby?.games.length && <p>募集中のゲームはありません。</p>}
+            {onlineLobby?.games.map((game) => {
+              const joined = game.seats.some(
+                (seat) => seat?.sessionId === onlineSession?.id,
+              );
+              return (
+                <article key={game.id} className="online-game">
+                  <header>
+                    <strong>{game.name}</strong>
+                    <span>{game.status === "waiting" ? "募集中" : "対局中"}</span>
+                  </header>
+                  <div className="online-seats">
+                    {game.seats.map((seat, index) => (
+                      <span key={index} className={seat ? "filled" : ""}>
+                        {seat
+                          ? `${index}: ${seat.name}${seat.connected ? "" : " (切断)"}`
+                          : `${index}: 空席`}
+                        {onlineCanHost &&
+                          seat?.kind === "human" &&
+                          seat.sessionId !== onlineSession?.id && (
+                            <button type="button" onClick={() => void kickSeat(index)}>
+                              外す
+                            </button>
+                          )}
+                      </span>
+                    ))}
+                  </div>
+                  {game.status === "waiting" && (
+                    <div className="online-actions">
+                      <button
+                        type="button"
+                        disabled={!onlineSession || joined}
+                        onClick={() => void joinTable(game)}
+                      >
+                        join
+                      </button>
+                      {game.hostSessionId === onlineSession?.id && (
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => void startTable()}
+                        >
+                          募集を止めて開始
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {game.status === "active" && joined && (
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => setScreen("game")}
+                    >
+                      対局へ
+                    </button>
+                  )}
+                </article>
+              );
+            })}
+          </section>
+        </div>
+      </main>
+    );
   }
 
   if (screen === "home") {
@@ -457,8 +760,9 @@ export default function App() {
   }
 
   if (!state) return null;
-  const human = state.players[0];
-  const isHumanTurn = state.currentPlayerIndex === 0 && state.phase !== "game_over";
+  const human = state.players[viewPlayerIndex];
+  const isHumanTurn =
+    state.currentPlayerIndex === viewPlayerIndex && state.phase !== "game_over";
   const pending = pendingState ?? state;
   const selectedActions =
     selectedHandIndex === null
@@ -514,7 +818,7 @@ export default function App() {
   const shownHand =
     shownEvaluation
       ? handBeforeRefill(state, shownEvaluation.candidate.actions)
-      : pending.players[0].hand;
+      : pending.players[viewPlayerIndex].hand;
   const shownPlacements = (
     shownEvaluation?.candidate.actions ??
     (selectedFrameAction
@@ -639,7 +943,7 @@ export default function App() {
       const models = await evaluateAllModels(
         candidates,
         ownCandidate,
-        0,
+        viewPlayerIndex,
         state,
         v2Tracking,
         history,
@@ -664,11 +968,30 @@ export default function App() {
     }
   };
 
-  const commitCandidate = (evaluation?: TurnEvaluation) => {
+  const commitCandidate = async (evaluation?: TurnEvaluation) => {
     const candidate =
       evaluation?.candidate ??
       completeHumanCandidate(state, pendingActions, history, plannedRefill);
     if (!candidate) return;
+    if (isOnline && onlineSession && activeOnlineGame) {
+      setThinking(true);
+      try {
+        const value = await submitOnlineTurn(
+          onlineSession.id,
+          activeOnlineGame.id,
+          activeOnlineGame.revision,
+          candidate.actions,
+        );
+        setOnlineLobby(value.lobby);
+        setComparison(null);
+        resetOwnMove();
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : String(error));
+      } finally {
+        setThinking(false);
+      }
+      return;
+    }
     setV2Tracking(
       replayV2Actions(state, candidate.actions, v2Tracking).tracking,
     );
@@ -778,6 +1101,11 @@ export default function App() {
           <span>{settings.assistMode === "analysis" ? "AI分析" : "分析なし"}</span>
           <span>{settings.modelIds.length} AI models</span>
           <span>NPC: {selectedModel.label}</span>
+          {isOnline && activeOnlineGame && (
+            <span>
+              online seat {viewPlayerIndex} rev {activeOnlineGame.revision}
+            </span>
+          )}
           <button type="button" className="text-button" onClick={() => setScreen("details")}>
             詳細
           </button>
@@ -793,7 +1121,10 @@ export default function App() {
             key={index}
             className={state.currentPlayerIndex === index ? "active-player" : ""}
           >
-            <strong>{index === 0 ? "あなた" : `NPC ${index}`}</strong>
+            <strong>
+              {activeOnlineGame?.seats[index]?.name ??
+                (index === viewPlayerIndex ? "あなた" : `NPC ${index}`)}
+            </strong>
             <span>失点 {player.lossScore}</span>
             <span>手札 {player.hand.length}</span>
             <span>マイナス {player.negativeCards.length}</span>
@@ -807,7 +1138,7 @@ export default function App() {
         <section className="game-over">
           <p className="eyebrow">GAME OVER</p>
           <h2>
-            {state.winners.includes(0)
+            {state.winners.includes(viewPlayerIndex)
               ? "あなたの勝利です"
               : `NPC ${state.winners.join(", ")} の勝利です`}
           </h2>
@@ -858,7 +1189,26 @@ export default function App() {
                   <button
                     type="button"
                     key={action.source}
-                    onClick={() => {
+                    onClick={async () => {
+                      if (isOnline && onlineSession && activeOnlineGame) {
+                        setThinking(true);
+                        try {
+                          const value = await submitOnlineTurn(
+                            onlineSession.id,
+                            activeOnlineGame.id,
+                            activeOnlineGame.revision,
+                            [action],
+                          );
+                          setOnlineLobby(value.lobby);
+                        } catch (error) {
+                          setMessage(
+                            error instanceof Error ? error.message : String(error),
+                          );
+                        } finally {
+                          setThinking(false);
+                        }
+                        return;
+                      }
                       const applied = applyActionTrackingHistory(
                         state,
                         action,
@@ -1092,8 +1442,9 @@ export default function App() {
                                     state,
                                     value.candidate.actions,
                                   );
-                                  const beforePlayer = state.players[0];
-                                  const afterPlayer = value.candidate.state.players[0];
+                                  const beforePlayer = state.players[viewPlayerIndex];
+                                  const afterPlayer =
+                                    value.candidate.state.players[viewPlayerIndex];
                                   const bonus = Math.max(
                                     0,
                                     beforePlayer.lossScore - afterPlayer.lossScore,

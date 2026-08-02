@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "online": "node server/online.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "smoke": "node scripts/smoke.mjs",

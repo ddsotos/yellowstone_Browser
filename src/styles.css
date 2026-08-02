@@ -107,6 +107,90 @@ h1 {
   background: rgba(244, 234, 217, 0.055);
 }
 
+.online-panel {
+  align-items: stretch;
+}
+
+.online-login {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.online-login legend {
+  grid-column: 1 / -1;
+}
+
+.online-login input {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  padding: 0.7rem 0.8rem;
+  color: var(--paper);
+  background: rgba(8, 7, 6, 0.32);
+}
+
+.online-games {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.online-games h2 {
+  margin: 0;
+}
+
+.online-game {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: rgba(8, 7, 6, 0.24);
+}
+
+.online-game header,
+.online-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.online-game header span {
+  color: var(--gold);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.online-seats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.online-seats span {
+  display: flex;
+  min-height: 2.4rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid rgba(244, 234, 217, 0.12);
+  border-radius: 0.45rem;
+  padding: 0.35rem 0.55rem;
+  color: #cabfae;
+  font-size: 0.82rem;
+}
+
+.online-seats span.filled {
+  color: var(--paper);
+  border-color: rgba(224, 173, 78, 0.32);
+}
+
+.online-seats button {
+  padding: 0.25rem 0.45rem;
+  border-radius: 0.35rem;
+  font-size: 0.72rem;
+}
+
 fieldset {
   display: flex;
   gap: 1rem;
