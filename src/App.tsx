@@ -275,6 +275,8 @@ export default function App() {
       ? "preplay"
       : settings.assistMode
     : "none";
+  const postPlayAnalysisEnabled =
+    winRateDisplayEnabled && settings.assistMode === "analysis";
   const currentTurnName = activeOnlineGame?.seats[state?.currentPlayerIndex ?? 0]?.name;
 
   useEffect(() => {
@@ -368,12 +370,12 @@ export default function App() {
   useEffect(() => {
     if (
       screen === "game" &&
-      (effectiveAssistMode === "analysis" ||
+      (postPlayAnalysisEnabled ||
         settings.difficulty === "expert")
     ) {
       warmAi(primaryPlayableModelId);
     }
-  }, [screen, effectiveAssistMode, settings.difficulty, primaryPlayableModelId]);
+  }, [screen, postPlayAnalysisEnabled, settings.difficulty, primaryPlayableModelId]);
 
   useEffect(() => {
     if (
@@ -1797,7 +1799,7 @@ export default function App() {
                             disabled={thinking}
                             onClick={() => {
                               setPlannedRefill(action);
-                              if (effectiveAssistMode === "analysis") {
+                              if (postPlayAnalysisEnabled) {
                                 void compare(pendingActions, action);
                               }
                             }}
@@ -2006,7 +2008,7 @@ export default function App() {
                           type="button"
                           className="primary"
                           onClick={() =>
-                            effectiveAssistMode === "analysis"
+                            postPlayAnalysisEnabled
                               ? void compare()
                               : commitCandidate()
                           }
@@ -2014,7 +2016,7 @@ export default function App() {
                         >
                           1枚プレイで終える
                         </button>
-                      ) : effectiveAssistMode === "none" ? (
+                      ) : !postPlayAnalysisEnabled ? (
                         <button
                           type="button"
                           className="primary"
