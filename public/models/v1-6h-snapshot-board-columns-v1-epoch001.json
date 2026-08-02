@@ -1,0 +1,32 @@
+{
+  "id": "v1-6h-snapshot-board-columns-v1-epoch001",
+  "label": "Board columns V1 6h snapshot epoch001",
+  "modelPath": "models/v1-6h-snapshot-board-columns-v1-epoch001.onnx",
+  "valueSchema": "yellowstone.value.v1",
+  "inputCanonicalization": "board_columns_v1_history_none",
+  "historySemantics": "none",
+  "featureContract": null,
+  "boardChannels": 1,
+  "boardSize": 7,
+  "boardHeight": 7,
+  "boardWidth": 3,
+  "contextSize": 62,
+  "scoreKind": "probability",
+  "outputTransform": "sigmoid",
+  "candidateGrouping": "played_cards",
+  "sourceCheckpoint": "rl_bundle/models/v2_heuristic_safe_counts_rank_color_6h_snapshot_training_board_columns_v1_epoch001_pct100.pt",
+  "sourceCheckpointSha256": "e3a52f0af9d27def8c80e9675a24a252feb26234a7aaa5a277cc0556fe4be48e",
+  "metrics": {
+    "validation_brier": 0.12842802942077158,
+    "validation_log_loss": 0.41340303692418284,
+    "test_brier": 0.12875597105754288,
+    "test_log_loss": 0.4139930371908717
+  },
+  "selection": {
+    "selectionSource": "results\\evaluations\\v2_heuristic_safe_counts_rank_color_6h_snapshot_training_board_columns_v1_1000_all_seats.json",
+    "allSeatsGames": 4000,
+    "allSeatsWinRate": 0.29458333333333336,
+    "allSeatsOneCardTurnRate": 0.4554504184214844
+  },
+  "exportMaxAbsoluteDifference": 7.62939453125e-06
+}

@@ -11,6 +11,12 @@ import {
   enumerateTurnCandidates,
   topDistinctCandidateEvaluations,
 } from "./value";
+import {
+  BOARD_COLUMNS_V1_CONTEXT_SIZE,
+  BOARD_COLUMNS_V1_HEIGHT,
+  BOARD_COLUMNS_V1_WIDTH,
+  encodeCandidatesBoardColumnsV1,
+} from "./valueBoardColumns";
 
 describe("value model inputs", () => {
   it("enumerates complete one- and two-card turns", () => {
@@ -62,6 +68,28 @@ describe("value model inputs", () => {
       );
     expect(presentCards(boundary)).toBe(4);
     expect(presentCards(postRefill)).toBe(6);
+  });
+
+  it("encodes board-columns V1 tensors without history features", () => {
+    const state = createInitialState(4, 8);
+    const candidates = enumerateTurnCandidates(state).slice(0, 3);
+    const encoded = encodeCandidatesBoardColumnsV1(candidates, 0, state);
+    expect(encoded.board).toHaveLength(
+      3 * BOARD_COLUMNS_V1_HEIGHT * BOARD_COLUMNS_V1_WIDTH,
+    );
+    expect(encoded.context).toHaveLength(3 * BOARD_COLUMNS_V1_CONTEXT_SIZE);
+    for (let record = 0; record < 3; record += 1) {
+      const marginStart =
+        record * BOARD_COLUMNS_V1_CONTEXT_SIZE +
+        BOARD_COLUMNS_V1_CONTEXT_SIZE -
+        5;
+      const marginSum = Array.from(
+        encoded.context.slice(marginStart, marginStart + 5),
+      ).reduce((sum, value) => sum + value, 0);
+      expect(marginSum).toBe(1);
+    }
+    expect([...encoded.board].every(Number.isFinite)).toBe(true);
+    expect([...encoded.context].every(Number.isFinite)).toBe(true);
   });
 
   it("reconstructs a selected human turn without mutating its start state", () => {

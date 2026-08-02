@@ -29,6 +29,8 @@ self.addEventListener("message", async (event) => {
     modelUrl,
     boardChannels,
     boardSize,
+    boardHeight,
+    boardWidth,
     contextSize,
     outputTransform,
   } = event.data;
@@ -43,8 +45,8 @@ self.addEventListener("message", async (event) => {
       board: new self.ort.Tensor("float32", new Float32Array(board), [
         count,
         boardChannels,
-        boardSize ?? 7,
-        boardSize ?? 7,
+        boardHeight ?? boardSize ?? 7,
+        boardWidth ?? boardSize ?? 7,
       ]),
       context: new self.ort.Tensor("float32", new Float32Array(context), [
         count,

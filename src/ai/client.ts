@@ -14,6 +14,7 @@ import {
   encodeCandidatesV2Lite,
 } from "../game/valueV2Lite";
 import { encodeCandidatesBoardCenteredNone } from "../game/valueBoardCentered";
+import { encodeCandidatesBoardColumnsV1 } from "../game/valueBoardColumns";
 import { V2TrackingState } from "../game/v2Tracking";
 import {
   encodePrivilegedCandidates,
@@ -35,7 +36,9 @@ export type ModelId =
   | "action-delta-selected"
   | "v1-new-88966-epoch001"
   | "v1-exploratory-59826-epoch001"
-  | "v1-board-centered-explore-none-76919-epoch001";
+  | "v1-board-centered-explore-none-76919-epoch001"
+  | "v1-6h-snapshot-canonical-epoch001"
+  | "v1-6h-snapshot-board-columns-v1-epoch001";
 export type ScoreKind = "probability" | "delta";
 type EncoderKind =
   | "v1"
@@ -44,13 +47,16 @@ type EncoderKind =
   | "action_delta"
   | "privileged"
   | "privileged_safe_counts"
-  | "board_centered_none";
+  | "board_centered_none"
+  | "board_columns_v1";
 
 export interface ModelSpec {
   id: ModelId;
   label: string;
   boardChannels: number;
   boardSize?: number;
+  boardHeight?: number;
+  boardWidth?: number;
   contextSize: number;
   scoreKind: ScoreKind;
   outputTransform: "sigmoid" | "identity" | "softmax_player0";
@@ -61,7 +67,7 @@ export interface ModelSpec {
 export const MODEL_SPECS: readonly ModelSpec[] = [
   {
     id: "preplay-v1-current",
-    label: "Pre-play V1 current（privileged preview）",
+    label: "Pre-play V1 current (privileged preview)",
     boardChannels: 29,
     contextSize: 190,
     scoreKind: "probability",
@@ -111,7 +117,7 @@ export const MODEL_SPECS: readonly ModelSpec[] = [
   },
   {
     id: "action-delta-selected",
-    label: "Action delta（公開情報）",
+    label: "Action delta selected",
     boardChannels: 58,
     contextSize: 150,
     scoreKind: "delta",
@@ -121,7 +127,7 @@ export const MODEL_SPECS: readonly ModelSpec[] = [
   },
   {
     id: "v1-new-88966-epoch001",
-    label: "Original V1 新88,966戦 epoch001",
+    label: "Original V1 new 88,966 games epoch001",
     boardChannels: 29,
     contextSize: 81,
     scoreKind: "probability",
@@ -131,7 +137,7 @@ export const MODEL_SPECS: readonly ModelSpec[] = [
   },
   {
     id: "v1-exploratory-59826-epoch001",
-    label: "V1 explore 59,826戦 epoch001",
+    label: "V1 explore 59,826 games epoch001",
     boardChannels: 29,
     contextSize: 81,
     scoreKind: "probability",
@@ -148,6 +154,28 @@ export const MODEL_SPECS: readonly ModelSpec[] = [
     scoreKind: "probability",
     outputTransform: "sigmoid",
     encoder: "board_centered_none",
+    grouping: "cards",
+  },
+  {
+    id: "v1-6h-snapshot-canonical-epoch001",
+    label: "Canonical V1 6h snapshot epoch001",
+    boardChannels: 29,
+    contextSize: 81,
+    scoreKind: "probability",
+    outputTransform: "sigmoid",
+    encoder: "v1",
+    grouping: "cards",
+  },
+  {
+    id: "v1-6h-snapshot-board-columns-v1-epoch001",
+    label: "Board columns V1 6h snapshot epoch001",
+    boardChannels: 1,
+    boardHeight: 7,
+    boardWidth: 3,
+    contextSize: 62,
+    scoreKind: "probability",
+    outputTransform: "sigmoid",
+    encoder: "board_columns_v1",
     grouping: "cards",
   },
 ] as const;
@@ -218,6 +246,9 @@ const tensorsFor = (
       history,
     );
   }
+  if (spec.encoder === "board_columns_v1") {
+    return encodeCandidatesBoardColumnsV1(candidates, viewer, turnStart, history);
+  }
   return encodeCandidatesActionDelta(candidates, viewer, turnStart, tracking);
 };
 
@@ -244,7 +275,7 @@ const infer = async (
     const cleanup = () => active.removeEventListener("message", onMessage);
     const timeout = window.setTimeout(() => {
       cleanup();
-      reject(new AiTimeoutError(`${spec.label}の計算が10秒を超えました`));
+      reject(new AiTimeoutError(`${spec.label} inference exceeded 30 seconds`));
     }, TIMEOUT_MS);
     const onMessage = (
       event: MessageEvent<{ id: number; scores?: ArrayBuffer; error?: string }>,
@@ -253,7 +284,7 @@ const infer = async (
       window.clearTimeout(timeout);
       cleanup();
       if (event.data.error || !event.data.scores) {
-        reject(new Error(event.data.error ?? `${spec.label}の推論に失敗しました`));
+        reject(new Error(event.data.error ?? `${spec.label} inference failed`));
         return;
       }
       const scores = new Float32Array(event.data.scores);
@@ -273,6 +304,8 @@ const infer = async (
         count: candidates.length,
         boardChannels: spec.boardChannels,
         boardSize: spec.boardSize ?? 7,
+        boardHeight: spec.boardHeight ?? spec.boardSize ?? 7,
+        boardWidth: spec.boardWidth ?? spec.boardSize ?? 7,
         contextSize: spec.contextSize,
         outputTransform: spec.outputTransform,
         board: board.buffer,
@@ -295,7 +328,7 @@ const inferRaw = async (
     const cleanup = () => active.removeEventListener("message", onMessage);
     const timeout = window.setTimeout(() => {
       cleanup();
-      reject(new AiTimeoutError(`${spec.label}縺ｮ險育ｮ励′10遘偵ｒ雜・∴縺ｾ縺励◆`));
+      reject(new AiTimeoutError(`${spec.label} inference exceeded 30 seconds`));
     }, TIMEOUT_MS);
     const onMessage = (
       event: MessageEvent<{ id: number; scores?: ArrayBuffer; error?: string }>,
@@ -304,7 +337,7 @@ const inferRaw = async (
       window.clearTimeout(timeout);
       cleanup();
       if (event.data.error || !event.data.scores) {
-        reject(new Error(event.data.error ?? `${spec.label}縺ｮ謗ｨ隲悶↓螟ｱ謨励＠縺ｾ縺励◆`));
+        reject(new Error(event.data.error ?? `${spec.label} inference failed`));
         return;
       }
       resolve(new Float32Array(event.data.scores));
@@ -318,6 +351,8 @@ const inferRaw = async (
         count,
         boardChannels: spec.boardChannels,
         boardSize: spec.boardSize ?? 7,
+        boardHeight: spec.boardHeight ?? spec.boardSize ?? 7,
+        boardWidth: spec.boardWidth ?? spec.boardSize ?? 7,
         contextSize: spec.contextSize,
         outputTransform: spec.outputTransform,
         board: board.buffer,
@@ -479,7 +514,7 @@ export const evaluateAllModels = async (
           history,
         ));
       const own = evaluations.at(-1);
-      if (!own) throw new Error("自分の手を評価できません");
+      if (!own) throw new Error("own move could not be evaluated");
       const all = evaluations.slice(0, -1);
       results.push({
         spec,
@@ -568,7 +603,7 @@ export const selectBestTurn = async (
     history,
     modelId,
   );
-  if (!evaluations.length) throw new Error("評価できる候補手がありません");
+  if (!evaluations.length) throw new Error("no candidate moves can be evaluated");
   return evaluations.reduce((best, current) =>
     current.probability > best.probability ? current : best,
   );

@@ -45,6 +45,13 @@ from yellowstone.value_board_centered import (  # noqa: E402
     BOARD_CENTERED_V1_CONTEXT_SIZE,
     BOARD_CENTERED_V1_HISTORY_NONE,
 )
+from yellowstone.value_board_columns import (  # noqa: E402
+    BOARD_COLUMNS_CHANNELS,
+    BOARD_COLUMNS_CONTEXT_SIZE,
+    BOARD_COLUMNS_HEIGHT,
+    BOARD_COLUMNS_WIDTH,
+    CANONICALIZATION_BOARD_COLUMNS_V1,
+)
 from yellowstone.value_v2 import (  # noqa: E402
     BOARD_CHANNELS_V2,
     VALUE_CONTEXT_SIZE_V2,
@@ -181,6 +188,46 @@ MODELS = (
         "score_kind": "probability",
         "candidate_grouping": "played_cards",
         "builder": "v1",
+    },
+    {
+        "id": "v1-6h-snapshot-canonical-epoch001",
+        "label": "Canonical V1 6h snapshot epoch001",
+        "checkpoint": "v2_heuristic_safe_counts_rank_color_6h_snapshot_training_canonical_epoch001_pct100.pt",
+        "schema": "yellowstone.value.v1",
+        "canonicalization": "fast_lr_ud_color_v1",
+        "history": "rolling_last_two_placements",
+        "channels": 29,
+        "context": VALUE_CONTEXT_SIZE,
+        "score_kind": "probability",
+        "candidate_grouping": "played_cards",
+        "builder": "v1",
+        "selection": {
+            "selectionSource": "results\\evaluations\\v2_heuristic_safe_counts_rank_color_6h_snapshot_training_canonical_seat0_1000.json",
+            "seat0Games": 1000,
+            "seat0WinRate": 0.2915,
+            "seat0OneCardTurnRate": 0.42116934393423117,
+        },
+    },
+    {
+        "id": "v1-6h-snapshot-board-columns-v1-epoch001",
+        "label": "Board columns V1 6h snapshot epoch001",
+        "checkpoint": "v2_heuristic_safe_counts_rank_color_6h_snapshot_training_board_columns_v1_epoch001_pct100.pt",
+        "schema": "yellowstone.value.v1",
+        "canonicalization": CANONICALIZATION_BOARD_COLUMNS_V1,
+        "history": "none",
+        "channels": BOARD_COLUMNS_CHANNELS,
+        "board_height": BOARD_COLUMNS_HEIGHT,
+        "board_width": BOARD_COLUMNS_WIDTH,
+        "context": BOARD_COLUMNS_CONTEXT_SIZE,
+        "score_kind": "probability",
+        "candidate_grouping": "played_cards",
+        "builder": "v1",
+        "selection": {
+            "selectionSource": "results\\evaluations\\v2_heuristic_safe_counts_rank_color_6h_snapshot_training_board_columns_v1_1000_all_seats.json",
+            "allSeatsGames": 4000,
+            "allSeatsWinRate": 0.29458333333333336,
+            "allSeatsOneCardTurnRate": 0.45545041842148443,
+        },
     },
 )
 
@@ -398,7 +445,7 @@ def export_one(spec: dict, output_dir: Path, selection: dict | None) -> dict:
         "sourceCheckpoint": f"rl_bundle/models/{checkpoint_path.name}",
         "sourceCheckpointSha256": sha256(checkpoint_path),
         "metrics": checkpoint.get("metrics", {}),
-        "selection": selection,
+        "selection": spec.get("selection", selection),
         "exportMaxAbsoluteDifference": max_difference,
     }
     (output_dir / f"{spec['id']}.json").write_text(
