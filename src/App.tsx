@@ -390,7 +390,7 @@ export default function App() {
       state.phase !== "play" ||
       state.currentPlayerIndex !== viewPlayerIndex ||
       state.cardsPlayedThisTurn !== 0 ||
-      settings.assistMode !== "preplay"
+      settings.assistMode === "none"
     ) {
       return;
     }
@@ -1530,14 +1530,14 @@ export default function App() {
 
       {message && <p className="notice">{message}</p>}
 
-      {isHumanTurn && settings.assistMode === "preplay" && preplayOnly && (
+      {isHumanTurn && settings.assistMode !== "none" && preplayOnly && (
         <section className="comparison">
           <div className="comparison-heading">
             <h2>Pre-play win rate</h2>
             {preplayOnly.status === "loading" && <span>calculating...</span>}
             {preplayOnly.status === "ok" && (
               <strong className="preplay-summary">
-                {preplayOnly.label}: {((preplayOnly.probability ?? 0) * 100).toFixed(1)}%
+                Before your play: {((preplayOnly.probability ?? 0) * 100).toFixed(1)}%
               </strong>
             )}
             {preplayOnly.status === "error" && (
@@ -1594,6 +1594,21 @@ export default function App() {
                   ? `${currentTurnName}のターンです`
                   : "NPCのターンです"}
               </div>
+            )}
+
+            {!isHumanTurn && (
+              <section>
+                <div className="section-title">
+                  <h2>あなたの手札</h2>
+                  <span>{human.hand.length}枚</span>
+                </div>
+                <Hand
+                  cards={human.hand}
+                  selectedIndex={null}
+                  disabled
+                  onSelect={() => undefined}
+                />
+              </section>
             )}
 
             {isHumanTurn && humanRefills.length > 0 && (
