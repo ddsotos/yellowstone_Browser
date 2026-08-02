@@ -163,6 +163,7 @@ const publicLobby = () => ({
     startedAt: game.startedAt,
     cpuDifficulty: game.cpuDifficulty,
     cpuModelId: game.cpuModelId ?? "v1-generation0-epoch002",
+    showWinRates: game.showWinRates !== false,
     seats: game.seats.map((seat) =>
       seat
         ? {
@@ -244,6 +245,7 @@ const createGame = async (session, body) => {
     startedAt: null,
     cpuDifficulty: body.cpuDifficulty === "expert" ? "expert" : "standard",
     cpuModelId: body.cpuModelId || "v1-generation0-epoch002",
+    showWinRates: body.showWinRates !== false,
     seats: [
       { index: 0, kind: "human", name: session.name, sessionId: session.id },
       null,
@@ -307,6 +309,16 @@ const setCpuModel = async (session, body) => {
   if (game.hostSessionId !== session.id) throw new Error("Only the host can change CPU model.");
   if (game.status !== "waiting") throw new Error("CPU model cannot be changed after game start.");
   game.cpuModelId = body.cpuModelId || "v1-generation0-epoch002";
+  game.revision += 1;
+  await changed();
+  return game;
+};
+
+const setWinRateDisplay = async (session, body) => {
+  const game = findGame(body.gameId);
+  if (game.hostSessionId !== session.id) throw new Error("Only the host can change win-rate display.");
+  if (game.status !== "waiting") throw new Error("Win-rate display cannot be changed after game start.");
+  game.showWinRates = body.showWinRates !== false;
   game.revision += 1;
   await changed();
   return game;
@@ -526,6 +538,7 @@ const route = async (request, response, vite) => {
     else if (url.pathname === "/api/online/join") game = await joinGame(session, body);
     else if (url.pathname === "/api/online/cpu-difficulty") game = await setCpuDifficulty(session, body);
     else if (url.pathname === "/api/online/cpu-model") game = await setCpuModel(session, body);
+    else if (url.pathname === "/api/online/win-rate-display") game = await setWinRateDisplay(session, body);
     else if (url.pathname === "/api/online/kick") game = await kickSeat(session, body);
     else if (url.pathname === "/api/online/delete") game = await deleteGame(session, body);
     else if (url.pathname === "/api/online/start") game = await startGame(engine, session, body);

@@ -68,6 +68,7 @@ import {
   saveSessionId,
   setOnlineCpuDifficulty,
   setOnlineCpuModel,
+  setOnlineWinRateDisplay,
   startOnlineGame,
   submitOnlineCpuTurn,
   submitOnlineTurn,
@@ -267,6 +268,9 @@ export default function App() {
   const onlineCanHost =
     activeOnlineGame?.hostSessionId === onlineSession?.id &&
     activeOnlineGame?.status === "waiting";
+  const winRateDisplayEnabled =
+    !isOnline || activeOnlineGame?.showWinRates !== false;
+  const effectiveAssistMode = winRateDisplayEnabled ? settings.assistMode : "none";
   const currentTurnName = activeOnlineGame?.seats[state?.currentPlayerIndex ?? 0]?.name;
 
   useEffect(() => {
@@ -360,12 +364,12 @@ export default function App() {
   useEffect(() => {
     if (
       screen === "game" &&
-      (settings.assistMode === "analysis" ||
+      (effectiveAssistMode === "analysis" ||
         settings.difficulty === "expert")
     ) {
       warmAi(primaryPlayableModelId);
     }
-  }, [screen, settings.assistMode, settings.difficulty, primaryPlayableModelId]);
+  }, [screen, effectiveAssistMode, settings.difficulty, primaryPlayableModelId]);
 
   useEffect(() => {
     if (
@@ -390,7 +394,7 @@ export default function App() {
       state.phase !== "play" ||
       state.currentPlayerIndex !== viewPlayerIndex ||
       state.cardsPlayedThisTurn !== 0 ||
-      settings.assistMode === "none"
+      effectiveAssistMode === "none"
     ) {
       return;
     }
@@ -420,7 +424,7 @@ export default function App() {
     state?.randomState,
     state?.currentPlayerIndex,
     state?.cardsPlayedThisTurn,
-    settings.assistMode,
+    effectiveAssistMode,
     viewPlayerIndex,
     history,
   ]);
@@ -672,6 +676,7 @@ export default function App() {
         `${onlineSession.name} table`,
         "standard",
         settings.npcModelId,
+        settings.assistMode !== "none",
       );
       setOnlineLobby(value.lobby);
     } catch (error) {
@@ -713,6 +718,24 @@ export default function App() {
     setOnlineMessage("");
     try {
       const value = await setOnlineCpuModel(onlineSession.id, game.id, cpuModelId);
+      setOnlineLobby(value.lobby);
+    } catch (error) {
+      setOnlineMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const updateTableWinRateDisplay = async (
+    game: OnlineGame,
+    showWinRates: boolean,
+  ) => {
+    if (!onlineSession) return;
+    setOnlineMessage("");
+    try {
+      const value = await setOnlineWinRateDisplay(
+        onlineSession.id,
+        game.id,
+        showWinRates,
+      );
       setOnlineLobby(value.lobby);
     } catch (error) {
       setOnlineMessage(error instanceof Error ? error.message : String(error));
@@ -943,6 +966,27 @@ export default function App() {
                         </label>
                       ))}
                     </div>
+                  </fieldset>
+                  <fieldset>
+                    <legend>Win-rate display</legend>
+                    <label>
+                      <input
+                        type="radio"
+                        checked={game.showWinRates !== false}
+                        disabled={!canManageGame}
+                        onChange={() => void updateTableWinRateDisplay(game, true)}
+                      />
+                      show
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        checked={game.showWinRates === false}
+                        disabled={!canManageGame}
+                        onChange={() => void updateTableWinRateDisplay(game, false)}
+                      />
+                      hide
+                    </label>
                   </fieldset>
                   <div className="online-seats">
                     {game.seats.map((seat, index) => (
@@ -1484,9 +1528,9 @@ export default function App() {
               : "通常NPC"}
           </span>
           <span>
-            {settings.assistMode === "analysis"
+            {effectiveAssistMode === "analysis"
               ? "AI分析"
-              : settings.assistMode === "preplay"
+              : effectiveAssistMode === "preplay"
                 ? "Pre-play"
                 : "分析なし"}
           </span>
@@ -1530,7 +1574,7 @@ export default function App() {
 
       {message && <p className="notice">{message}</p>}
 
-      {isHumanTurn && settings.assistMode !== "none" && preplayOnly && (
+      {isHumanTurn && effectiveAssistMode !== "none" && preplayOnly && (
         <section className="comparison">
           <div className="comparison-heading">
             <h2>Pre-play win rate</h2>
@@ -1748,7 +1792,7 @@ export default function App() {
                             disabled={thinking}
                             onClick={() => {
                               setPlannedRefill(action);
-                              if (settings.assistMode === "analysis") {
+                              if (effectiveAssistMode === "analysis") {
                                 void compare(pendingActions, action);
                               }
                             }}
@@ -1957,7 +2001,7 @@ export default function App() {
                           type="button"
                           className="primary"
                           onClick={() =>
-                            settings.assistMode === "analysis"
+                            effectiveAssistMode === "analysis"
                               ? void compare()
                               : commitCandidate()
                           }
@@ -1965,7 +2009,7 @@ export default function App() {
                         >
                           1枚プレイで終える
                         </button>
-                      ) : settings.assistMode === "none" ? (
+                      ) : effectiveAssistMode === "none" ? (
                         <button
                           type="button"
                           className="primary"

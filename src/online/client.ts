@@ -31,6 +31,7 @@ export interface OnlineGame {
   startedAt: string | null;
   cpuDifficulty: Difficulty;
   cpuModelId: ModelId;
+  showWinRates: boolean;
   seats: (OnlineSeat | null)[];
   state: GameState | null;
   history: RecentPlacement[];
@@ -87,12 +88,14 @@ export const createOnlineGame = (
   name: string,
   cpuDifficulty: Difficulty,
   cpuModelId: ModelId,
+  showWinRates: boolean,
 ) =>
   requestJson<{ lobby: OnlineLobby }>("/api/online/create", {
     sessionId,
     name,
     cpuDifficulty,
     cpuModelId,
+    showWinRates,
   });
 
 export const joinOnlineGame = (sessionId: string, gameId: string) =>
@@ -118,6 +121,17 @@ export const setOnlineCpuModel = (
     sessionId,
     gameId,
     cpuModelId,
+  });
+
+export const setOnlineWinRateDisplay = (
+  sessionId: string,
+  gameId: string,
+  showWinRates: boolean,
+) =>
+  requestJson<{ lobby: OnlineLobby }>("/api/online/win-rate-display", {
+    sessionId,
+    gameId,
+    showWinRates,
   });
 
 export const kickOnlineSeat = (
