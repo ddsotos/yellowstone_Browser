@@ -269,6 +269,14 @@ const findGame = (gameId) => {
 const findSeat = (game, sessionId) =>
   game.seats.find((seat) => seat?.kind === "human" && seat.sessionId === sessionId);
 
+const allHumanSeatsDisconnected = (game) => {
+  const humanSeats = game.seats.filter((seat) => seat?.kind === "human");
+  return (
+    humanSeats.length > 0 &&
+    humanSeats.every((seat) => !sessionIsConnected(store.sessions[seat.sessionId]))
+  );
+};
+
 const joinGame = async (session, body) => {
   const game = findGame(body.gameId);
   if (game.status !== "waiting") throw new Error("開始済みのゲームには参加できません。");
@@ -296,8 +304,8 @@ const kickSeat = async (session, body) => {
 
 const deleteGame = async (session, body) => {
   const game = findGame(body.gameId);
-  if (game.hostSessionId !== session.id) {
-    throw new Error("Only the host can delete this game.");
+  if (game.hostSessionId !== session.id && !allHumanSeatsDisconnected(game)) {
+    throw new Error("Only the host, or any user when all human seats are disconnected, can delete this game.");
   }
   delete store.games[game.id];
   if (store.activeGameId === game.id) store.activeGameId = null;

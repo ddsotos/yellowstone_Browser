@@ -710,6 +710,12 @@ export default function App() {
               const joined = game.seats.some(
                 (seat) => seat?.sessionId === onlineSession?.id,
               );
+              const humanSeats = game.seats.filter((seat) => seat?.kind === "human");
+              const canDeleteGame =
+                game.hostSessionId === onlineSession?.id ||
+                (Boolean(onlineSession) &&
+                  humanSeats.length > 0 &&
+                  humanSeats.every((seat) => seat && !seat.connected));
               return (
                 <article key={game.id} className="online-game">
                   <header>
@@ -761,7 +767,7 @@ export default function App() {
                       対局へ
                     </button>
                   )}
-                  {game.hostSessionId === onlineSession?.id && (
+                  {canDeleteGame && (
                     <button
                       type="button"
                       className="danger"
