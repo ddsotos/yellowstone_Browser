@@ -3,13 +3,14 @@ import { V2TrackingState } from "./game/v2Tracking";
 import type { ModelId } from "./ai/client";
 
 export type Difficulty = "standard" | "expert";
-export type AssistMode = "none" | "analysis";
+export type AssistMode = "none" | "preplay" | "analysis";
 
 export interface Settings {
   difficulty: Difficulty;
   assistMode: AssistMode;
   modelId?: ModelId;
   modelIds: ModelId[];
+  npcModelId: ModelId;
 }
 
 export interface SavedGame {

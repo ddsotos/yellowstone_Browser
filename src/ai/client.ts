@@ -503,7 +503,10 @@ export const evaluateAllModels = async (
   return results;
 };
 
-const DEFAULT_PLAY_MODEL = MODEL_SPECS[1];
+const DEFAULT_PLAY_MODEL = PLAYABLE_MODEL_SPECS[0];
+const DEFAULT_PREPLAY_MODEL = MODEL_SPECS.find(
+  (spec) => spec.id === "preplay-safe-counts-generation0-197800-epoch001",
+) ?? MODEL_SPECS[0];
 
 export const warmAi = (modelId: ModelId = DEFAULT_PLAY_MODEL.id): void => {
   const active = activeWorker();
@@ -531,6 +534,23 @@ export const evaluateCandidates = (
     tracking,
     history,
   );
+
+export const evaluatePreplayBefore = async (
+  viewer: number,
+  turnStart: GameState,
+  history: RecentPlacement[] = [],
+  modelId: ModelId = DEFAULT_PREPLAY_MODEL.id,
+): Promise<{ spec: ModelSpec; probability: number }> => {
+  const spec =
+    MODEL_SPECS.find(
+      (value) => value.id === modelId && value.encoder === "privileged_safe_counts",
+    ) ?? DEFAULT_PREPLAY_MODEL;
+  const tensors = encodePrivilegedSafeCountStateInputs([
+    { state: turnStart, history, viewer },
+  ]);
+  const scores = await inferRaw(spec, tensors.board, tensors.context, 1);
+  return { spec, probability: scores[0] };
+};
 
 export const selectBestTurn = async (
   candidates: TurnCandidate[],

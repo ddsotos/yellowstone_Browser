@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AiTimeoutError,
   evaluateAllModels,
+  evaluatePreplayBefore,
   MODEL_SPECS,
   ModelId,
   ModelAnalysis,
@@ -77,6 +78,13 @@ interface Comparison {
   models: ModelAnalysis[];
 }
 
+interface PreplayOnly {
+  status: "loading" | "ok" | "error";
+  label: string;
+  probability?: number;
+  error?: string;
+}
+
 const seatName = (
   index: number,
   lobby: OnlineLobby | null,
@@ -91,6 +99,7 @@ const seatName = (
 const defaultSettings: Settings = {
   difficulty: "standard",
   assistMode: "none",
+  npcModelId: "v1-generation0-epoch002",
   modelIds: [
     "v1-generation0-epoch002",
     "v2-generation0-epoch001",
@@ -111,6 +120,10 @@ const sanitizePublicModelIds = (modelIds: ModelId[]): ModelId[] => {
     ? selected
     : defaultSettings.modelIds.filter((id) => allowed.has(id));
 };
+
+const sanitizePlayableModelId = (modelId: ModelId | undefined): ModelId =>
+  PLAYABLE_MODEL_SPECS.find((spec) => spec.id === modelId)?.id ??
+  defaultSettings.npcModelId;
 
 const cardName = (action: PlaceCardAction, before: GameState): string => {
   const card = before.players[before.currentPlayerIndex].hand[action.handIndex];
@@ -201,6 +214,7 @@ export default function App() {
     return {
       ...defaultSettings,
       ...saved,
+      npcModelId: sanitizePlayableModelId(saved.npcModelId ?? saved.modelId),
       modelIds: modelIds.slice(0, 5),
     };
   }, [savedAtStart]);
@@ -224,6 +238,7 @@ export default function App() {
   const [manualFrameSelection, setManualFrameSelection] = useState(false);
   const [plannedRefill, setPlannedRefill] = useState<RefillAction | null>(null);
   const [comparison, setComparison] = useState<Comparison | null>(null);
+  const [preplayOnly, setPreplayOnly] = useState<PreplayOnly | null>(null);
   const [preview, setPreview] = useState<Preview>("own");
   const [message, setMessage] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -235,10 +250,7 @@ export default function App() {
   const activeModelIds = isOnline
     ? sanitizePublicModelIds(settings.modelIds)
     : settings.modelIds;
-  const primaryPlayableModelId =
-    activeModelIds.find((id) =>
-      PLAYABLE_MODEL_SPECS.some((spec) => spec.id === id),
-    ) ?? PLAYABLE_MODEL_SPECS[0].id;
+  const primaryPlayableModelId = sanitizePlayableModelId(settings.npcModelId);
   const isPreplayModel = (model: ModelAnalysis) =>
     model.spec.encoder.startsWith("privileged");
 
@@ -365,8 +377,50 @@ export default function App() {
       setSelectedFrameAction(null);
       setPlannedRefill(null);
       setComparison(null);
+      setPreplayOnly(null);
     }
   }, [state, viewPlayerIndex]);
+
+  useEffect(() => {
+    if (
+      !state ||
+      state.phase !== "play" ||
+      state.currentPlayerIndex !== viewPlayerIndex ||
+      state.cardsPlayedThisTurn !== 0 ||
+      settings.assistMode !== "preplay"
+    ) {
+      return;
+    }
+    let disposed = false;
+    setPreplayOnly({ status: "loading", label: "Pre-play" });
+    evaluatePreplayBefore(viewPlayerIndex, state, history)
+      .then((value) => {
+        if (disposed) return;
+        setPreplayOnly({
+          status: "ok",
+          label: value.spec.label,
+          probability: value.probability,
+        });
+      })
+      .catch((error) => {
+        if (disposed) return;
+        setPreplayOnly({
+          status: "error",
+          label: "Pre-play",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [
+    state?.randomState,
+    state?.currentPlayerIndex,
+    state?.cardsPlayedThisTurn,
+    settings.assistMode,
+    viewPlayerIndex,
+    history,
+  ]);
 
   useEffect(() => {
     if (
@@ -672,6 +726,16 @@ export default function App() {
               />
               各モデル勝率を表示
             </label>
+            <label>
+              <input
+                type="radio"
+                checked={settings.assistMode === "preplay"}
+                onChange={() =>
+                  setSettings((value) => ({ ...value, assistMode: "preplay" }))
+                }
+              />
+              Pre-play only
+            </label>
           </fieldset>
 
           <fieldset className="model-picker">
@@ -861,6 +925,23 @@ export default function App() {
               強化NPC
             </label>
           </fieldset>
+          <fieldset className="model-picker">
+            <legend>NPC model</legend>
+            <div className="model-options">
+              {PLAYABLE_MODEL_SPECS.map((spec) => (
+                <label key={spec.id}>
+                  <input
+                    type="radio"
+                    checked={settings.npcModelId === spec.id}
+                    onChange={() =>
+                      setSettings((value) => ({ ...value, npcModelId: spec.id }))
+                    }
+                  />
+                  <span>{spec.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <fieldset>
             <legend>プレイモード</legend>
             <label>
@@ -882,6 +963,16 @@ export default function App() {
                 }
               />
               AI分析モード
+            </label>
+            <label>
+              <input
+                type="radio"
+                checked={settings.assistMode === "preplay"}
+                onChange={() =>
+                  setSettings((value) => ({ ...value, assistMode: "preplay" }))
+                }
+              />
+              Pre-play only
             </label>
           </fieldset>
           <fieldset className="model-picker">
@@ -1096,6 +1187,7 @@ export default function App() {
     setSelectedFrameAction(null);
     setPlannedRefill(null);
     setComparison(null);
+    setPreplayOnly(null);
     setPreview("own");
   };
 
@@ -1277,7 +1369,13 @@ export default function App() {
               ? "強化NPC"
               : "通常NPC"}
           </span>
-          <span>{settings.assistMode === "analysis" ? "AI分析" : "分析なし"}</span>
+          <span>
+            {settings.assistMode === "analysis"
+              ? "AI分析"
+              : settings.assistMode === "preplay"
+                ? "Pre-play"
+                : "分析なし"}
+          </span>
           <span>{activeModelIds.length} AI models</span>
           <span>NPC: {selectedModel.label}</span>
           {isOnline && activeOnlineGame && (
@@ -1317,6 +1415,23 @@ export default function App() {
       </section>
 
       {message && <p className="notice">{message}</p>}
+
+      {isHumanTurn && settings.assistMode === "preplay" && preplayOnly && (
+        <section className="comparison">
+          <div className="comparison-heading">
+            <h2>Pre-play win rate</h2>
+            {preplayOnly.status === "loading" && <span>calculating...</span>}
+            {preplayOnly.status === "ok" && (
+              <strong className="preplay-summary">
+                {preplayOnly.label}: {((preplayOnly.probability ?? 0) * 100).toFixed(1)}%
+              </strong>
+            )}
+            {preplayOnly.status === "error" && (
+              <span className="model-error">{preplayOnly.error}</span>
+            )}
+          </div>
+        </section>
+      )}
 
       {state.phase === "game_over" ? (
         <section className="game-over">
