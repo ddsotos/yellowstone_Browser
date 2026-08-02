@@ -29,6 +29,7 @@ from yellowstone.action_delta import (  # noqa: E402
 )
 from yellowstone.privileged_state import (  # noqa: E402
     CANONICALIZATION_PRIVILEGED_STATE,
+    FEATURE_CONTRACT_PRIVILEGED_STATE,
     HISTORY_SEMANTICS_PRIVILEGED_STATE,
 )
 from yellowstone.cnn import (  # noqa: E402
@@ -72,6 +73,21 @@ MODELS = (
         "builder": "privileged",
     },
     {
+        "id": "preplay-safe-counts-generation0-197800-epoch001",
+        "label": "Pre-play safe/one-off gen0 197,800 epoch001",
+        "checkpoint": "preplay_safe_counts_generation0_197800_epoch001.pt",
+        "schema": "yellowstone.value.privileged-state.v1",
+        "canonicalization": CANONICALIZATION_PRIVILEGED_STATE,
+        "history": HISTORY_SEMANTICS_PRIVILEGED_STATE,
+        "feature_contract": FEATURE_CONTRACT_PRIVILEGED_STATE,
+        "channels": 29,
+        "context": 199,
+        "score_kind": "probability",
+        "output_transform": "softmax_player0",
+        "candidate_grouping": "played_cards",
+        "builder": "privileged",
+    },
+    {
         "id": "v1-generation0-epoch002",
         "label": "Original V1 gen0 epoch002",
         "checkpoint": "win_value_v1_original_generation0_197800_epoch002.pt",
@@ -83,6 +99,20 @@ MODELS = (
         "score_kind": "probability",
         "candidate_grouping": "played_cards",
         "builder": "v1",
+    },
+    {
+        "id": "canonical-old-001",
+        "label": "Canonical old 660k epoch001",
+        "checkpoint": "win_value_canonical_old_001.pt",
+        "schema": "yellowstone.value.v1",
+        "canonicalization": "fast_lr_ud_color_v1",
+        "history": "rolling_last_two_placements",
+        "channels": 29,
+        "context": VALUE_CONTEXT_SIZE,
+        "score_kind": "probability",
+        "candidate_grouping": "played_cards",
+        "builder": "v1",
+        "allow_legacy_contract": True,
     },
     {
         "id": "v2-generation0-epoch001",
@@ -101,6 +131,7 @@ MODELS = (
         "id": "action-delta-selected",
         "label": "Action delta（公開情報）",
         "checkpoint": None,
+        "label": "Action delta selected",
         "schema": VALUE_SCHEMA_ACTION_DELTA,
         "canonicalization": CANONICALIZATION_ACTION_DELTA,
         "history": HISTORY_SEMANTICS_ACTION_DELTA,
@@ -114,6 +145,7 @@ MODELS = (
         "id": "v1-new-88966-epoch001",
         "label": "Original V1 新88,966戦 epoch001",
         "checkpoint": "win_value_v1_original_new_88966_epoch001.pt",
+        "label": "Original V1 new 88,966 games epoch001",
         "schema": "yellowstone.value.v1",
         "canonicalization": "fast_lr_ud_color_v1",
         "history": "rolling_last_two_placements",
@@ -208,6 +240,18 @@ def build_model(kind: str, checkpoint: dict, spec: dict):
             hidden_size=int(architecture["hidden_size"]),
             board_channels=int(architecture.get("board_channels", spec["channels"])),
             board_size=int(architecture.get("board_size", spec.get("board_size", 7))),
+            board_height=int(
+                architecture.get(
+                    "board_height",
+                    architecture.get("board_size", spec.get("board_height", spec.get("board_size", 7))),
+                )
+            ),
+            board_width=int(
+                architecture.get(
+                    "board_width",
+                    architecture.get("board_size", spec.get("board_width", spec.get("board_size", 7))),
+                )
+            ),
         )
     if kind == "v2":
         return build_win_value_net_v2()
@@ -262,10 +306,17 @@ def export_one(spec: dict, output_dir: Path, selection: dict | None) -> dict:
     if spec["builder"] in {"v1", "action_delta", "privileged"}:
         expected["history_semantics"] = spec["history"]
     for key, value in expected.items():
-        if checkpoint.get(key) != value:
+        if checkpoint.get(key) != value and not spec.get("allow_legacy_contract"):
             raise RuntimeError(
                 f"{checkpoint_path.name}: {key}={checkpoint.get(key)!r}, expected {value!r}"
             )
+    if spec.get("feature_contract") is not None and checkpoint.get(
+        "feature_contract"
+    ) != spec["feature_contract"]:
+        raise RuntimeError(
+            f"{checkpoint_path.name}: feature_contract={checkpoint.get('feature_contract')!r}, "
+            f"expected {spec['feature_contract']!r}"
+        )
     if int(checkpoint.get("context_size", spec["context"])) != spec["context"]:
         raise RuntimeError(f"{checkpoint_path.name}: context size mismatch")
     if spec["builder"] == "action_delta" and checkpoint.get(
@@ -283,7 +334,12 @@ def export_one(spec: dict, output_dir: Path, selection: dict | None) -> dict:
     model.eval()
     generator = torch.Generator().manual_seed(20260730)
     board = torch.rand(
-        (2, spec["channels"], spec.get("board_size", 7), spec.get("board_size", 7)),
+        (
+            2,
+            spec["channels"],
+            spec.get("board_height", spec.get("board_size", 7)),
+            spec.get("board_width", spec.get("board_size", 7)),
+        ),
         generator=generator,
         dtype=torch.float32,
     )
@@ -327,8 +383,11 @@ def export_one(spec: dict, output_dir: Path, selection: dict | None) -> dict:
         "valueSchema": spec["schema"],
         "inputCanonicalization": spec["canonicalization"],
         "historySemantics": spec["history"],
+        "featureContract": spec.get("feature_contract"),
         "boardChannels": spec["channels"],
         "boardSize": spec.get("board_size", 7),
+        "boardHeight": spec.get("board_height", spec.get("board_size", 7)),
+        "boardWidth": spec.get("board_width", spec.get("board_size", 7)),
         "contextSize": spec["context"],
         "scoreKind": spec["score_kind"],
         "outputTransform": spec.get(

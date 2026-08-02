@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { encodePrivilegedCandidates, PRIVILEGED_CONTEXT_SIZE, PRIVILEGED_BOARD_CHANNELS } from "./valuePrivileged";
+import {
+  encodePrivilegedCandidates,
+  encodePrivilegedSafeCountCandidates,
+  PRIVILEGED_CONTEXT_SIZE,
+  PRIVILEGED_SAFE_COUNTS_CONTEXT_SIZE,
+  PRIVILEGED_BOARD_CHANNELS,
+} from "./valuePrivileged";
 import { GameState } from "./types";
 
 const state: GameState = {
@@ -37,5 +43,17 @@ describe("privileged pre-play input", () => {
     const original = encodePrivilegedCandidates(state, [], 1).context;
     const updated = encodePrivilegedCandidates(changed, [], 1).context;
     expect([...original]).not.toEqual([...updated]);
+  });
+
+  it("adds safe, one-off, and board-card count features for the safe-count model", () => {
+    const result = encodePrivilegedSafeCountCandidates(state, [], 1);
+    const context = result.context;
+
+    expect(context).toHaveLength(PRIVILEGED_SAFE_COUNTS_CONTEXT_SIZE);
+    expect(context[41]).toBeCloseTo(1 / 6);
+    expect(context[42]).toBe(0);
+    expect(context[84]).toBeCloseTo(1 / 6);
+    expect(context[85]).toBe(0);
+    expect(context[174]).toBeCloseTo(1 / 49);
   });
 });

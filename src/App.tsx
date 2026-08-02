@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AiTimeoutError,
   evaluateAllModels,
+  MODEL_SPECS,
   ModelId,
   ModelAnalysis,
   PLAYABLE_MODEL_SPECS,
@@ -175,7 +176,12 @@ export default function App() {
   const [message, setMessage] = useState("");
   const [thinking, setThinking] = useState(false);
   const npcRunning = useRef(false);
-  const primaryModelId = settings.modelIds[0] ?? defaultSettings.modelIds[0];
+  const primaryPlayableModelId =
+    settings.modelIds.find((id) =>
+      PLAYABLE_MODEL_SPECS.some((spec) => spec.id === id),
+    ) ?? PLAYABLE_MODEL_SPECS[0].id;
+  const isPreplayModel = (model: ModelAnalysis) =>
+    model.spec.encoder.startsWith("privileged");
 
   useEffect(() => {
     if (state) saveGame(state, history, settings, v2Tracking);
@@ -187,9 +193,9 @@ export default function App() {
       (settings.assistMode === "analysis" ||
         settings.difficulty === "expert")
     ) {
-      warmAi(primaryModelId);
+      warmAi(primaryPlayableModelId);
     }
-  }, [screen, settings.assistMode, settings.difficulty, primaryModelId]);
+  }, [screen, settings.assistMode, settings.difficulty, primaryPlayableModelId]);
 
   useEffect(() => {
     if (
@@ -238,7 +244,7 @@ export default function App() {
             nextState,
             nextV2Tracking,
             nextHistory,
-            primaryModelId,
+            primaryPlayableModelId,
           );
           nextV2Tracking = replayV2Actions(
             nextState,
@@ -328,7 +334,7 @@ export default function App() {
       }
     };
     void run();
-  }, [state, history, settings.difficulty, primaryModelId, v2Tracking]);
+  }, [state, history, settings.difficulty, primaryPlayableModelId, v2Tracking]);
 
   const startNew = () => {
     if (state && !window.confirm("保存中の対局を上書きして新しく始めますか？")) {
@@ -404,7 +410,7 @@ export default function App() {
           <fieldset className="model-picker">
             <legend>AI models ({settings.modelIds.length}/5)</legend>
             <div className="model-options">
-              {PLAYABLE_MODEL_SPECS.map((spec) => (
+              {MODEL_SPECS.map((spec) => (
                 <label key={spec.id}>
                   <input
                     type="checkbox"
@@ -465,8 +471,9 @@ export default function App() {
     selectedActions.map((action) => positionKey(action.position)),
   );
   const visibleModels = comparison?.models.filter(
-    (model) => model.spec.id !== "preplay-v1-current",
+    (model) => !isPreplayModel(model),
   );
+  const preplayModels = comparison?.models.filter(isPreplayModel) ?? [];
   const firstSuccessfulModel = visibleModels?.find(
     (model) => model.status === "ok",
   );
@@ -479,6 +486,15 @@ export default function App() {
     previewChoice === "own"
       ? previewModel?.own
       : previewModel?.top[Number(previewChoice?.slice(3))];
+  const selectedPreplayEvaluation = (model: ModelAnalysis) => {
+    const selected = shownEvaluation ?? model.own;
+    if (!selected) return model.own;
+    if (model.own?.candidate === selected.candidate) return model.own;
+    return (
+      model.all.find((evaluation) => evaluation.candidate === selected.candidate) ??
+      model.own
+    );
+  };
   const placementPreviewBoard = selectedFrameAction
     ? (() => {
         const key = positionKey(selectedFrameAction.position);
@@ -718,10 +734,15 @@ export default function App() {
           modelId: model.spec.id,
           label: model.spec.label,
           scoreKind: model.spec.scoreKind,
-          ...(model.spec.encoder === "privileged"
+          ...(model.spec.encoder.startsWith("privileged")
             ? {
-                scoreMeaning: "preplay_win_probability_before_action_and_refill",
+                scoreMeaning:
+                  model.spec.encoder === "privileged_safe_counts"
+                    ? "preplay_before_probability_and_postplay_candidate_probability"
+                    : "preplay_win_probability_before_action_and_refill",
                 candidateMeaning: "legal_turn_plan_attached_for_comparison_only",
+                preplayBeforeProbability: model.preplayBeforeProbability,
+                preplayPostSampleCount: model.preplayPostSampleCount,
               }
             : {}),
           status: model.status,
@@ -742,7 +763,7 @@ export default function App() {
 
   const humanRefills = isHumanTurn ? refillActions(state) : [];
   const selectedModel =
-    PLAYABLE_MODEL_SPECS.find((spec) => spec.id === primaryModelId) ??
+    PLAYABLE_MODEL_SPECS.find((spec) => spec.id === primaryPlayableModelId) ??
     PLAYABLE_MODEL_SPECS[0];
 
   return (
@@ -978,6 +999,26 @@ export default function App() {
                           </strong>
                         ) : null;
                       })()}
+                      {preplayModels
+                        .filter((model) => model.spec.id !== "preplay-v1-current")
+                        .map((model) => {
+                          const selected = selectedPreplayEvaluation(model);
+                          return model.status === "ok" && selected ? (
+                            <strong className="preplay-summary" key={model.spec.id}>
+                              {model.spec.label}: before{" "}
+                              {(
+                                (model.preplayBeforeProbability ?? model.own?.probability ?? 0) *
+                                100
+                              ).toFixed(1)}
+                              % / after {(selected.probability * 100).toFixed(1)}% /{" "}
+                              {describePlan(state, selected.candidate.actions)}
+                            </strong>
+                          ) : (
+                            <strong className="preplay-summary" key={model.spec.id}>
+                              {model.spec.label}: error
+                            </strong>
+                          );
+                        })}
                     </div>
                     <div className="comparison-column-headings" aria-hidden="true">
                       <span>モデル</span>

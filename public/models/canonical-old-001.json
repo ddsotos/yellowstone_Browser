@@ -1,0 +1,26 @@
+{
+  "id": "canonical-old-001",
+  "label": "Canonical old 660k epoch001",
+  "modelPath": "models/canonical-old-001.onnx",
+  "valueSchema": "yellowstone.value.v1",
+  "inputCanonicalization": "fast_lr_ud_color_v1",
+  "historySemantics": "rolling_last_two_placements",
+  "featureContract": null,
+  "boardChannels": 29,
+  "boardSize": 7,
+  "boardHeight": 7,
+  "boardWidth": 7,
+  "contextSize": 81,
+  "scoreKind": "probability",
+  "outputTransform": "sigmoid",
+  "candidateGrouping": "played_cards",
+  "sourceCheckpoint": "rl_bundle/models/win_value_canonical_old_001.pt",
+  "sourceCheckpointSha256": "64cc1ca3115ffd29e638e7b219fff4e2d3bdca46597bc51deef36fe99e314adf",
+  "metrics": {
+    "validation_brier": 0.12890743044567382,
+    "test_brier": 0.12885697339973784,
+    "test_log_loss": 0.41485726041517973
+  },
+  "selection": null,
+  "exportMaxAbsoluteDifference": 4.76837158203125e-07
+}

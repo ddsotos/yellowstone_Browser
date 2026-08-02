@@ -1,0 +1,45 @@
+› Cloudflare Quick Tunnel周りのコードはどこに置いてますか？
+
+
+• C:\codex-work\temp\18xx-online 側です。主な場所はここです。
+
+  - docker-compose.online.yml
+    オンライン用Docker Compose。rack を ONLINE_PORT で公開し、Named Tunnel用の cloudflared serviceも残っています。Quick
+    Tunnelでは主に rack 公開部分を使います。
+
+  - scripts/online/
+    オンライン起動・停止・診断・DBバックアップ用スクリプト群です。Quick Tunnel自体は今のところ専用スクリプトではなく、
+    docsにある docker run cloudflare/cloudflared... を直接実行する形です。
+
+  - docs/online-play-quickstart.md
+    Quick Tunnelで遊ぶ最短手順。
+
+  - docs/cloudflare-tunnel-runbook.md
+    詳細手順、トラブルシュート、MessageBusの注意点。
+
+  - docs/online-play-plan.md
+    採用方針。Quick Tunnelを当面方針として記載。
+
+  - docs/friend-access-guide.md
+    友人に共有する参加手順。
+
+  関連するログイン変更はここです。
+
+  - routes/user.rb
+    /api/user/friend_login
+
+  - assets/app/view/user.rb
+    Friend Login画面
+
+  - assets/app/view/navigation.rb
+    オンライン用ではSignupを隠す
+
+  - assets/app/user_manager.rb
+    Friend Login API呼び出し
+
+  - api.rb
+    FRIEND_LOGIN_ENABLED をフロントへ渡す
+
+  ブランチは元リポジトリにもpush済みで、名前はこれです。
+
+  online-play-cloudflare-tunnel
