@@ -335,14 +335,10 @@ export default function App() {
       setComparison(null);
       setPreview("own");
     }
-    setScreen("game");
   }, [
     isOnline,
     activeOnlineGame?.id,
     activeOnlineGame?.revision,
-    activeOnlineGame?.state,
-    activeOnlineGame?.history,
-    activeOnlineGame?.v2Tracking,
     viewPlayerIndex,
   ]);
 
@@ -577,6 +573,7 @@ export default function App() {
     try {
       const value = await startOnlineGame(onlineSession.id, activeOnlineGame.id);
       setOnlineLobby(value.lobby);
+      setScreen("game");
     } catch (error) {
       setOnlineMessage(error instanceof Error ? error.message : String(error));
     }
