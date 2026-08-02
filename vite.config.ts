@@ -4,6 +4,9 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   base: "./",
   plugins: [react()],
+  server: {
+    allowedHosts: [".trycloudflare.com"],
+  },
   test: {
     environment: "node",
     exclude: [...configDefaults.exclude, ".tools/**"],
