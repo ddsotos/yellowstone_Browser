@@ -41,8 +41,34 @@ To stop the local online server:
 
 ## Friend Access With Cloudflare Quick Tunnel
 
-Keep the online server running locally, then start a Quick Tunnel in another
-terminal.
+Keep the online server running locally, then start a Quick Tunnel.
+
+The simple Docker-based helper starts `cloudflare/cloudflared` in the background
+and prints the generated public URL.
+
+```powershell
+.\scripts\online-tunnel-start.cmd
+```
+
+Share the printed `shareUrl`, which looks like this:
+
+```text
+https://...trycloudflare.com/?online=1
+```
+
+Check the tunnel again when needed.
+
+```powershell
+.\scripts\online-tunnel-status.cmd
+```
+
+Stop only the public tunnel, leaving the local game server running.
+
+```powershell
+.\scripts\online-tunnel-stop.cmd
+```
+
+Manual alternatives are below.
 
 If `cloudflared` is installed locally:
 
@@ -56,7 +82,6 @@ If you want to run `cloudflared` through Docker:
 docker run --rm -it cloudflare/cloudflared:latest tunnel --no-autoupdate --url http://host.docker.internal:9293
 ```
 
-Share the generated `https://...trycloudflare.com/?online=1` URL with friends.
 The URL changes every time the tunnel is restarted.
 
 ## Notes
@@ -67,3 +92,5 @@ The URL changes every time the tunnel is restarted.
 - Game state is saved on the local server in `local-data/online-state.json`.
 - Current CPU fallback uses the existing heuristic CPU. Strong server-side AI CPU
   is intentionally left behind the same API boundary for the next step.
+- Quick Tunnel is intended for friend testing. Anyone with the generated URL can
+  access the table until the tunnel is stopped.
