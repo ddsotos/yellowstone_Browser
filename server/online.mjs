@@ -162,6 +162,7 @@ const publicLobby = () => ({
     createdAt: game.createdAt,
     startedAt: game.startedAt,
     cpuDifficulty: game.cpuDifficulty,
+    cpuModelId: game.cpuModelId ?? "v1-generation0-epoch002",
     seats: game.seats.map((seat) =>
       seat
         ? {
@@ -242,6 +243,7 @@ const createGame = async (session, body) => {
     createdAt: nowIso(),
     startedAt: null,
     cpuDifficulty: body.cpuDifficulty === "expert" ? "expert" : "standard",
+    cpuModelId: body.cpuModelId || "v1-generation0-epoch002",
     seats: [
       { index: 0, kind: "human", name: session.name, sessionId: session.id },
       null,
@@ -300,6 +302,16 @@ const setCpuDifficulty = async (session, body) => {
   return game;
 };
 
+const setCpuModel = async (session, body) => {
+  const game = findGame(body.gameId);
+  if (game.hostSessionId !== session.id) throw new Error("Only the host can change CPU model.");
+  if (game.status !== "waiting") throw new Error("CPU model cannot be changed after game start.");
+  game.cpuModelId = body.cpuModelId || "v1-generation0-epoch002";
+  game.revision += 1;
+  await changed();
+  return game;
+};
+
 const kickSeat = async (session, body) => {
   const game = findGame(body.gameId);
   if (game.hostSessionId !== session.id) throw new Error("ホストだけが削除できます。");
@@ -336,6 +348,7 @@ const rememberCompletedTurn = (game, playerIndex) => {
 };
 
 const runCpuTurns = async (engine, game) => {
+  if (game.cpuDifficulty === "expert") return;
   const cpuNames = new Set(
     game.seats.filter((seat) => seat?.kind === "cpu").map((seat) => seat.index),
   );
@@ -387,23 +400,15 @@ const startGame = async (engine, session, body) => {
   return game;
 };
 
-const submitTurn = async (engine, session, body) => {
-  const game = findGame(body.gameId);
-  if (game.status !== "active") throw new Error("ゲームが開始されていません。");
-  const seat = findSeat(game, session.id);
-  if (!seat) throw new Error("このゲームに参加していません。");
-  if (game.state.currentPlayerIndex !== seat.index) throw new Error("あなたの手番ではありません。");
-  const actions = Array.isArray(body.actions) ? body.actions : [];
-  if (!actions.length) throw new Error("手が空です。");
-  const expectedRevision = Number(body.revision);
-  if (expectedRevision !== game.revision) throw new Error("盤面が更新されています。");
+const applySubmittedTurn = async (engine, game, actions) => {
+  if (!actions.length) throw new Error("empty turn");
   const playerIndex = game.state.currentPlayerIndex;
   for (const action of actions) {
     if (
       game.state.phase === "game_over" ||
       game.state.currentPlayerIndex !== playerIndex
     ) {
-      throw new Error("手順が現在の手番を超えています。");
+      throw new Error("turn actions exceed current player");
     }
     const applied = engine.value.applyActionTrackingHistory(
       game.state,
@@ -420,7 +425,7 @@ const submitTurn = async (engine, session, body) => {
     game.history = applied.history;
   }
   if (game.state.currentPlayerIndex === playerIndex && game.state.phase !== "game_over") {
-    throw new Error("補充まで含めて手番を完了してください。");
+    throw new Error("turn must include refill completion");
   }
   rememberCompletedTurn(game, playerIndex);
   game.revision += 1;
@@ -429,6 +434,29 @@ const submitTurn = async (engine, session, body) => {
   return game;
 };
 
+const submitTurn = async (engine, session, body) => {
+  const game = findGame(body.gameId);
+  if (game.status !== "active") throw new Error("Game is not active.");
+  const seat = findSeat(game, session.id);
+  if (!seat) throw new Error("You are not seated in this game.");
+  if (game.state.currentPlayerIndex !== seat.index) throw new Error("It is not your turn.");
+  const expectedRevision = Number(body.revision);
+  if (expectedRevision !== game.revision) throw new Error("Board revision changed.");
+  const actions = Array.isArray(body.actions) ? body.actions : [];
+  return applySubmittedTurn(engine, game, actions);
+};
+
+const submitCpuTurn = async (engine, session, body) => {
+  const game = findGame(body.gameId);
+  if (game.status !== "active") throw new Error("Game is not active.");
+  if (!findSeat(game, session.id)) throw new Error("Only a joined human can drive CPU turns.");
+  const seat = game.seats[game.state.currentPlayerIndex];
+  if (seat?.kind !== "cpu") throw new Error("Current player is not a CPU seat.");
+  const expectedRevision = Number(body.revision);
+  if (expectedRevision !== game.revision) throw new Error("Board revision changed.");
+  const actions = Array.isArray(body.actions) ? body.actions : [];
+  return applySubmittedTurn(engine, game, actions);
+};
 const route = async (request, response, vite) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
   if (!url.pathname.startsWith("/api/online")) return false;
@@ -497,10 +525,12 @@ const route = async (request, response, vite) => {
     if (url.pathname === "/api/online/create") game = await createGame(session, body);
     else if (url.pathname === "/api/online/join") game = await joinGame(session, body);
     else if (url.pathname === "/api/online/cpu-difficulty") game = await setCpuDifficulty(session, body);
+    else if (url.pathname === "/api/online/cpu-model") game = await setCpuModel(session, body);
     else if (url.pathname === "/api/online/kick") game = await kickSeat(session, body);
     else if (url.pathname === "/api/online/delete") game = await deleteGame(session, body);
     else if (url.pathname === "/api/online/start") game = await startGame(engine, session, body);
     else if (url.pathname === "/api/online/submit-turn") game = await submitTurn(engine, session, body);
+    else if (url.pathname === "/api/online/submit-cpu-turn") game = await submitCpuTurn(engine, session, body);
     else {
       json(response, 404, { error: "not found" });
       return true;

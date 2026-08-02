@@ -67,7 +67,9 @@ import {
   savedSessionId,
   saveSessionId,
   setOnlineCpuDifficulty,
+  setOnlineCpuModel,
   startOnlineGame,
+  submitOnlineCpuTurn,
   submitOnlineTurn,
 } from "./online/client";
 
@@ -247,6 +249,7 @@ export default function App() {
   const [onlineName, setOnlineName] = useState("");
   const [onlineMessage, setOnlineMessage] = useState("");
   const npcRunning = useRef(false);
+  const onlineCpuRunning = useRef(false);
   const activeModelIds = isOnline
     ? sanitizePublicModelIds(settings.modelIds)
     : settings.modelIds;
@@ -424,6 +427,89 @@ export default function App() {
 
   useEffect(() => {
     if (
+      !isOnline ||
+      !onlineSession ||
+      !activeOnlineGame?.state ||
+      !activeOnlineGame.v2Tracking ||
+      activeOnlineGame.status !== "active" ||
+      activeOnlineGame.cpuDifficulty !== "expert" ||
+      onlineCpuRunning.current
+    ) {
+      return;
+    }
+    const cpuState = activeOnlineGame.state;
+    const cpuTracking = activeOnlineGame.v2Tracking;
+    if (!cpuState || !cpuTracking) return;
+    const seat = activeOnlineGame.seats[cpuState.currentPlayerIndex];
+    const joined = activeOnlineGame.seats.some(
+      (value) => value?.kind === "human" && value.sessionId === onlineSession.id,
+    );
+    if (seat?.kind !== "cpu" || !joined) return;
+    onlineCpuRunning.current = true;
+    const run = async () => {
+      let actions: Action[] = [];
+      const playerIndex = cpuState.currentPlayerIndex;
+      try {
+        if (
+          cpuState.phase === "play" &&
+          cpuState.cardsPlayedThisTurn === 0 &&
+          legalActions(cpuState).some((action) => action.type === "place")
+        ) {
+          const candidates = enumerateTurnCandidates(cpuState, activeOnlineGame.history);
+          const best = await selectBestTurn(
+            candidates,
+            playerIndex,
+            cpuState,
+            cpuTracking,
+            activeOnlineGame.history,
+            sanitizePlayableModelId(activeOnlineGame.cpuModelId),
+          );
+          actions = best.candidate.actions;
+        }
+      } catch {
+        actions = [];
+      }
+      if (!actions.length) {
+        let nextState = cpuState;
+        const fallbackActions: Action[] = [];
+        while (
+          nextState.phase !== "game_over" &&
+          nextState.currentPlayerIndex === playerIndex
+        ) {
+          const action = chooseHeuristicAction(nextState);
+          if (!action) break;
+          fallbackActions.push(action);
+          nextState = applyKnownLegalAction(nextState, action);
+        }
+        actions = fallbackActions;
+      }
+      try {
+        const value = await submitOnlineCpuTurn(
+          onlineSession.id,
+          activeOnlineGame.id,
+          activeOnlineGame.revision,
+          actions,
+        );
+        setOnlineLobby(value.lobby);
+      } catch {
+        // Another browser may have submitted the same CPU turn first.
+      } finally {
+        onlineCpuRunning.current = false;
+      }
+    };
+    void run();
+  }, [
+    isOnline,
+    onlineSession?.id,
+    activeOnlineGame?.id,
+    activeOnlineGame?.revision,
+    activeOnlineGame?.status,
+    activeOnlineGame?.cpuDifficulty,
+    activeOnlineGame?.cpuModelId,
+  ]);
+
+  useEffect(() => {
+    if (
       isOnline ||
       !state ||
       state.phase === "game_over" ||
@@ -585,6 +671,7 @@ export default function App() {
         onlineSession.id,
         `${onlineSession.name} table`,
         "standard",
+        settings.npcModelId,
       );
       setOnlineLobby(value.lobby);
     } catch (error) {
@@ -615,6 +702,17 @@ export default function App() {
         game.id,
         cpuDifficulty,
       );
+      setOnlineLobby(value.lobby);
+    } catch (error) {
+      setOnlineMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const updateTableCpuModel = async (game: OnlineGame, cpuModelId: ModelId) => {
+    if (!onlineSession) return;
+    setOnlineMessage("");
+    try {
+      const value = await setOnlineCpuModel(onlineSession.id, game.id, cpuModelId);
       setOnlineLobby(value.lobby);
     } catch (error) {
       setOnlineMessage(error instanceof Error ? error.message : String(error));
@@ -829,6 +927,22 @@ export default function App() {
                       />
                       expert
                     </label>
+                  </fieldset>
+                  <fieldset className="model-picker">
+                    <legend>CPU model</legend>
+                    <div className="model-options">
+                      {publicModelSpecs.map((spec) => (
+                        <label key={spec.id}>
+                          <input
+                            type="radio"
+                            checked={game.cpuModelId === spec.id}
+                            disabled={!canManageGame}
+                            onChange={() => void updateTableCpuModel(game, spec.id)}
+                          />
+                          <span>{spec.label}</span>
+                        </label>
+                      ))}
+                    </div>
                   </fieldset>
                   <div className="online-seats">
                     {game.seats.map((seat, index) => (

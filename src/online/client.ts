@@ -1,6 +1,7 @@
 import { GameState, Action, Card, RecentPlacement } from "../game/types";
 import { V2TrackingState } from "../game/v2Tracking";
 import { Difficulty } from "../storage";
+import type { ModelId } from "../ai/client";
 
 export interface OnlineSession {
   id: string;
@@ -29,6 +30,7 @@ export interface OnlineGame {
   createdAt: string;
   startedAt: string | null;
   cpuDifficulty: Difficulty;
+  cpuModelId: ModelId;
   seats: (OnlineSeat | null)[];
   state: GameState | null;
   history: RecentPlacement[];
@@ -84,11 +86,13 @@ export const createOnlineGame = (
   sessionId: string,
   name: string,
   cpuDifficulty: Difficulty,
+  cpuModelId: ModelId,
 ) =>
   requestJson<{ lobby: OnlineLobby }>("/api/online/create", {
     sessionId,
     name,
     cpuDifficulty,
+    cpuModelId,
   });
 
 export const joinOnlineGame = (sessionId: string, gameId: string) =>
@@ -103,6 +107,17 @@ export const setOnlineCpuDifficulty = (
     sessionId,
     gameId,
     cpuDifficulty,
+  });
+
+export const setOnlineCpuModel = (
+  sessionId: string,
+  gameId: string,
+  cpuModelId: ModelId,
+) =>
+  requestJson<{ lobby: OnlineLobby }>("/api/online/cpu-model", {
+    sessionId,
+    gameId,
+    cpuModelId,
   });
 
 export const kickOnlineSeat = (
@@ -132,6 +147,19 @@ export const submitOnlineTurn = (
   actions: Action[],
 ) =>
   requestJson<{ lobby: OnlineLobby }>("/api/online/submit-turn", {
+    sessionId,
+    gameId,
+    revision,
+    actions,
+  });
+
+export const submitOnlineCpuTurn = (
+  sessionId: string,
+  gameId: string,
+  revision: number,
+  actions: Action[],
+) =>
+  requestJson<{ lobby: OnlineLobby }>("/api/online/submit-cpu-turn", {
     sessionId,
     gameId,
     revision,
