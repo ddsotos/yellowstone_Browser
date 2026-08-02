@@ -270,7 +270,11 @@ export default function App() {
     activeOnlineGame?.status === "waiting";
   const winRateDisplayEnabled =
     !isOnline || activeOnlineGame?.showWinRates !== false;
-  const effectiveAssistMode = winRateDisplayEnabled ? settings.assistMode : "none";
+  const effectiveAssistMode = winRateDisplayEnabled
+    ? isOnline && settings.assistMode === "none"
+      ? "preplay"
+      : settings.assistMode
+    : "none";
   const currentTurnName = activeOnlineGame?.seats[state?.currentPlayerIndex ?? 0]?.name;
 
   useEffect(() => {
@@ -391,11 +395,10 @@ export default function App() {
   useEffect(() => {
     if (
       !state ||
-      state.phase !== "play" ||
-      state.currentPlayerIndex !== viewPlayerIndex ||
-      state.cardsPlayedThisTurn !== 0 ||
+      state.phase === "game_over" ||
       effectiveAssistMode === "none"
     ) {
+      setPreplayOnly(null);
       return;
     }
     let disposed = false;
@@ -424,6 +427,7 @@ export default function App() {
     state?.randomState,
     state?.currentPlayerIndex,
     state?.cardsPlayedThisTurn,
+    state?.phase,
     effectiveAssistMode,
     viewPlayerIndex,
     history,
@@ -1574,14 +1578,15 @@ export default function App() {
 
       {message && <p className="notice">{message}</p>}
 
-      {isHumanTurn && effectiveAssistMode !== "none" && preplayOnly && (
+      {effectiveAssistMode !== "none" && preplayOnly && (
         <section className="comparison">
           <div className="comparison-heading">
-            <h2>Pre-play win rate</h2>
+            <h2>{isHumanTurn ? "Pre-play win rate" : "Current win rate"}</h2>
             {preplayOnly.status === "loading" && <span>calculating...</span>}
             {preplayOnly.status === "ok" && (
               <strong className="preplay-summary">
-                Before your play: {((preplayOnly.probability ?? 0) * 100).toFixed(1)}%
+                {isHumanTurn ? "Before your play" : "Your win rate now"}:{" "}
+                {((preplayOnly.probability ?? 0) * 100).toFixed(1)}%
               </strong>
             )}
             {preplayOnly.status === "error" && (
