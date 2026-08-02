@@ -199,12 +199,28 @@ const ensureNameAvailable = (name, sessionId) => {
   if (duplicate) throw new Error("同じ名前のプレイヤーが接続中です。");
 };
 
+const findReconnectableSessionByName = (name, sessionId) =>
+  Object.values(store.sessions)
+    .filter(
+      (session) =>
+        session.name === name &&
+        session.id !== sessionId &&
+        !sessionIsConnected(session),
+    )
+    .sort((left, right) =>
+      String(right.lastSeenAt ?? right.createdAt).localeCompare(
+        String(left.lastSeenAt ?? left.createdAt),
+      ),
+    )[0] ?? null;
+
 const createSession = async ({ name, sessionId }) => {
   const cleanName = normalizeName(name);
   if (!cleanName) throw new Error("名前を入力してください。");
-  pruneDisconnectedWaitingSeats();
-  ensureNameAvailable(cleanName, sessionId);
-  const existing = sessionId ? store.sessions[sessionId] : null;
+  const existing =
+    (sessionId ? store.sessions[sessionId] : null) ??
+    findReconnectableSessionByName(cleanName, sessionId);
+  if (!existing) pruneDisconnectedWaitingSeats();
+  ensureNameAvailable(cleanName, existing?.id ?? sessionId);
   const session = existing ?? { id: randomUUID(), createdAt: nowIso() };
   session.name = cleanName;
   session.connected = true;
