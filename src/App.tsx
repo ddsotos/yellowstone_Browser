@@ -54,12 +54,14 @@ import {
   bootstrapOnline,
   clearSessionId,
   createOnlineGame,
+  deleteOnlineGame,
   joinOnlineGame,
   kickOnlineSeat,
   loginOnline,
   OnlineGame,
   OnlineLobby,
   OnlineSession,
+  OnlineTurnSummary,
   onlineEnabled,
   savedSessionId,
   saveSessionId,
@@ -113,6 +115,15 @@ const cardName = (action: PlaceCardAction, before: GameState): string => {
   const card = before.players[before.currentPlayerIndex].hand[action.handIndex];
   const colors = { red: "赤", blue: "青", green: "緑", yellow: "黄" };
   return `${colors[card.color]}${card.rankIndex + 1}`;
+};
+
+const turnSummaryText = (turn: OnlineTurnSummary | null | undefined): string => {
+  if (!turn) return "直近プレイ なし / 受取失点 0枚";
+  const colors = { red: "赤", blue: "青", green: "緑", yellow: "黄" };
+  const cards = turn.cards
+    .map((card) => `${colors[card.color]}${card.rankIndex + 1}`)
+    .join("・");
+  return `直近 ${cards || "なし"} / 受取失点 ${turn.negativeCardDelta}枚`;
 };
 
 // Candidate states include the selected refill. For the hand preview, keep the
@@ -289,6 +300,16 @@ export default function App() {
     setState(activeOnlineGame.state);
     setHistory(activeOnlineGame.history);
     setV2Tracking(activeOnlineGame.v2Tracking);
+    if (activeOnlineGame.state.currentPlayerIndex !== viewPlayerIndex) {
+      setPendingState(null);
+      setPendingActions([]);
+      setSelectedHandIndex(null);
+      setFrameChoices([]);
+      setSelectedFrameAction(null);
+      setPlannedRefill(null);
+      setComparison(null);
+      setPreview("own");
+    }
     setScreen("game");
   }, [
     isOnline,
@@ -297,6 +318,7 @@ export default function App() {
     activeOnlineGame?.state,
     activeOnlineGame?.history,
     activeOnlineGame?.v2Tracking,
+    viewPlayerIndex,
   ]);
 
   useEffect(() => {
@@ -532,6 +554,25 @@ export default function App() {
     }
   };
 
+  const deleteTable = async (game: OnlineGame) => {
+    if (!onlineSession) return;
+    if (!window.confirm("このゲームを中断して削除しますか？")) return;
+    setOnlineMessage("");
+    try {
+      const value = await deleteOnlineGame(onlineSession.id, game.id);
+      setOnlineLobby(value.lobby);
+      if (activeOnlineGame?.id === game.id) {
+        setState(null);
+        setHistory([]);
+        setV2Tracking(createV2Tracking(4));
+        resetOwnMove();
+        setScreen("home");
+      }
+    } catch (error) {
+      setOnlineMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   if (screen === "details") {
     return <Details onBack={() => setScreen(state ? "game" : "home")} />;
   }
@@ -718,6 +759,15 @@ export default function App() {
                       onClick={() => setScreen("game")}
                     >
                       対局へ
+                    </button>
+                  )}
+                  {game.hostSessionId === onlineSession?.id && (
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => void deleteTable(game)}
+                    >
+                      中断・削除
                     </button>
                   )}
                 </article>
@@ -989,7 +1039,7 @@ export default function App() {
   };
 
   const resetOwnMove = () => {
-    setPendingState(state);
+    setPendingState(null);
     setPendingActions([]);
     setSelectedHandIndex(null);
     setFrameChoices([]);
@@ -1202,6 +1252,11 @@ export default function App() {
             <span>失点 {player.lossScore}</span>
             <span>手札 {player.hand.length}</span>
             <span>マイナス {player.negativeCards.length}</span>
+            {isOnline && (
+              <span className="last-turn">
+                {turnSummaryText(activeOnlineGame?.lastTurns?.[index])}
+              </span>
+            )}
           </article>
         ))}
       </section>

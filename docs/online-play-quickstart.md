@@ -6,10 +6,10 @@ CPU players when the host starts the game.
 
 ## Local Two-Window Play
 
-1. Start the online server.
+1. Start the online server in the background.
 
 ```powershell
-npm run online
+.\scripts\online-start.cmd
 ```
 
 2. Open two browser windows.
@@ -18,14 +18,26 @@ npm run online
 http://localhost:9293/?online=1
 ```
 
-3. Log in with different names in each window.
+3. Check server status when needed.
 
-4. In the first window, create a game.
+```powershell
+.\scripts\online-status.cmd
+```
 
-5. In the second window, join from the game list.
+4. Log in with different names in each window.
 
-6. The host can remove joined players while the table is waiting, then start the
+5. In the first window, create a game.
+
+6. In the second window, join from the game list.
+
+7. The host can remove joined players while the table is waiting, then start the
    game at any time. Seats not filled by humans become CPU seats.
+
+To stop the local online server:
+
+```powershell
+.\scripts\online-stop.cmd
+```
 
 ## Friend Access With Cloudflare Quick Tunnel
 

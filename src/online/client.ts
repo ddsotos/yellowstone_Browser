@@ -1,4 +1,4 @@
-import { GameState, Action, RecentPlacement } from "../game/types";
+import { GameState, Action, Card, RecentPlacement } from "../game/types";
 import { V2TrackingState } from "../game/v2Tracking";
 import { Difficulty } from "../storage";
 
@@ -15,6 +15,12 @@ export interface OnlineSeat {
   connected: boolean;
 }
 
+export interface OnlineTurnSummary {
+  playerIndex: number;
+  cards: Card[];
+  negativeCardDelta: number;
+}
+
 export interface OnlineGame {
   id: string;
   name: string;
@@ -27,6 +33,7 @@ export interface OnlineGame {
   state: GameState | null;
   history: RecentPlacement[];
   v2Tracking: V2TrackingState | null;
+  lastTurns: (OnlineTurnSummary | null)[];
   revision: number;
 }
 
@@ -96,6 +103,12 @@ export const kickOnlineSeat = (
     sessionId,
     gameId,
     seatIndex,
+  });
+
+export const deleteOnlineGame = (sessionId: string, gameId: string) =>
+  requestJson<{ lobby: OnlineLobby }>("/api/online/delete", {
+    sessionId,
+    gameId,
   });
 
 export const startOnlineGame = (sessionId: string, gameId: string) =>

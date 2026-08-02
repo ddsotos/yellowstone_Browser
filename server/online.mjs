@@ -128,6 +128,21 @@ const markSessionsDisconnectedAfterRestart = () => {
   return didChange;
 };
 
+const shuffledSeats = (seats) => {
+  const result = seats.map((seat, index) =>
+    seat ?? { index, kind: "cpu", name: `CPU ${index + 1}` },
+  );
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result.map((seat, index) => ({
+    ...seat,
+    index,
+    name: seat.kind === "cpu" ? `CPU ${index + 1}` : seat.name,
+  }));
+};
+
 const requireSession = (sessionId) => {
   const session = store.sessions[sessionId];
   if (!session) throw new Error("ログインしてください。");
@@ -164,6 +179,7 @@ const publicLobby = () => ({
     state: game.state,
     history: game.history,
     v2Tracking: game.v2Tracking,
+    lastTurns: game.lastTurns ?? Array.from({ length: 4 }, () => null),
     revision: game.revision,
   })),
 });
@@ -219,6 +235,7 @@ const createGame = async (session, body) => {
     state: null,
     history: [],
     v2Tracking: null,
+    lastTurns: Array.from({ length: 4 }, () => null),
     revision: 0,
   };
   store.games[id] = game;
@@ -261,6 +278,29 @@ const kickSeat = async (session, body) => {
   return game;
 };
 
+const deleteGame = async (session, body) => {
+  const game = findGame(body.gameId);
+  if (game.hostSessionId !== session.id) {
+    throw new Error("Only the host can delete this game.");
+  }
+  delete store.games[game.id];
+  if (store.activeGameId === game.id) store.activeGameId = null;
+  await changed();
+  return game;
+};
+
+const rememberCompletedTurn = (game, playerIndex) => {
+  const completed = game.v2Tracking?.history?.at(-1);
+  if (!completed || completed.playerIndex !== playerIndex) return;
+  const lastTurns = game.lastTurns ?? Array.from({ length: 4 }, () => null);
+  lastTurns[playerIndex] = {
+    playerIndex,
+    cards: completed.cards,
+    negativeCardDelta: Math.max(0, completed.negativeCardDelta),
+  };
+  game.lastTurns = lastTurns;
+};
+
 const runCpuTurns = async (engine, game) => {
   const cpuNames = new Set(
     game.seats.filter((seat) => seat?.kind === "cpu").map((seat) => seat.index),
@@ -275,7 +315,9 @@ const runCpuTurns = async (engine, game) => {
       game.state.currentPlayerIndex === playerIndex
     ) {
       const action = engine.bot.chooseHeuristicAction(game.state);
-      if (!action) break;
+      if (!action) {
+        throw new Error(`CPU seat ${playerIndex} has no legal action`);
+      }
       const applied = engine.value.applyActionTrackingHistory(
         game.state,
         action,
@@ -290,6 +332,7 @@ const runCpuTurns = async (engine, game) => {
       game.state = applied.state;
       game.history = applied.history;
     }
+    rememberCompletedTurn(game, playerIndex);
   }
 };
 
@@ -297,14 +340,11 @@ const startGame = async (engine, session, body) => {
   const game = findGame(body.gameId);
   if (game.hostSessionId !== session.id) throw new Error("ホストだけが開始できます。");
   if (game.status !== "waiting") throw new Error("開始済みです。");
-  for (let index = 0; index < 4; index += 1) {
-    if (!game.seats[index]) {
-      game.seats[index] = { index, kind: "cpu", name: `CPU ${index + 1}` };
-    }
-  }
+  game.seats = shuffledSeats(game.seats);
   game.state = engine.game.createInitialState(4);
   game.history = [];
   game.v2Tracking = engine.v2.createV2Tracking(4);
+  game.lastTurns = Array.from({ length: 4 }, () => null);
   game.status = "active";
   game.startedAt = nowIso();
   game.revision += 1;
@@ -348,6 +388,7 @@ const submitTurn = async (engine, session, body) => {
   if (game.state.currentPlayerIndex === playerIndex && game.state.phase !== "game_over") {
     throw new Error("補充まで含めて手番を完了してください。");
   }
+  rememberCompletedTurn(game, playerIndex);
   game.revision += 1;
   await runCpuTurns(engine, game);
   await changed();
@@ -358,6 +399,17 @@ const route = async (request, response, vite) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
   if (!url.pathname.startsWith("/api/online")) return false;
   try {
+    if (request.method === "GET" && url.pathname === "/api/online/health") {
+      json(response, 200, {
+        ok: true,
+        pid: process.pid,
+        port,
+        storePath,
+        updatedAt: store.updatedAt,
+      });
+      return true;
+    }
+
     if (request.method === "GET" && url.pathname === "/api/online/events") {
       const session = requireSession(url.searchParams.get("sessionId"));
       response.writeHead(200, {
@@ -411,6 +463,7 @@ const route = async (request, response, vite) => {
     if (url.pathname === "/api/online/create") game = await createGame(session, body);
     else if (url.pathname === "/api/online/join") game = await joinGame(session, body);
     else if (url.pathname === "/api/online/kick") game = await kickSeat(session, body);
+    else if (url.pathname === "/api/online/delete") game = await deleteGame(session, body);
     else if (url.pathname === "/api/online/start") game = await startGame(engine, session, body);
     else if (url.pathname === "/api/online/submit-turn") game = await submitTurn(engine, session, body);
     else {

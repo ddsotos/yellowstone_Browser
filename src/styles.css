@@ -55,6 +55,13 @@ button:disabled {
   font-weight: 800;
 }
 
+.danger {
+  color: #ffe4df;
+  background: #7b2d25;
+  border-color: rgba(255, 184, 168, 0.55);
+  font-weight: 800;
+}
+
 .text-button {
   border-color: transparent;
   background: transparent;
@@ -281,6 +288,15 @@ label {
 .score-strip article strong {
   color: var(--paper);
   font-size: 0.9rem;
+}
+
+.score-strip .last-turn {
+  min-height: 2.2em;
+  margin-top: 0.25rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line);
+  color: #e7dccb;
+  line-height: 1.35;
 }
 
 .score-strip .active-player {
