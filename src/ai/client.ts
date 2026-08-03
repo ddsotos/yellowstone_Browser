@@ -14,7 +14,10 @@ import {
   encodeCandidatesV2Lite,
 } from "../game/valueV2Lite";
 import { encodeCandidatesBoardCenteredNone } from "../game/valueBoardCentered";
-import { encodeCandidatesBoardColumnsV1 } from "../game/valueBoardColumns";
+import {
+  encodeCandidatesBoardColumnsV1,
+  encodePreplayBoardColumnsState,
+} from "../game/valueBoardColumns";
 import { V2TrackingState } from "../game/v2Tracking";
 import {
   encodePrivilegedCandidates,
@@ -48,7 +51,8 @@ type EncoderKind =
   | "privileged"
   | "privileged_safe_counts"
   | "board_centered_none"
-  | "board_columns_v1";
+  | "board_columns_v1"
+  | "preplay_board_columns";
 
 export interface ModelSpec {
   id: ModelId;
@@ -77,12 +81,14 @@ export const MODEL_SPECS: readonly ModelSpec[] = [
   },
   {
     id: "preplay-safe-counts-generation0-197800-epoch001",
-    label: "Pre-play safe/one-off gen0 197,800 epoch001",
-    boardChannels: 29,
-    contextSize: 199,
+    label: "Pre-play board columns 6h snapshot epoch001",
+    boardChannels: 1,
+    boardHeight: 7,
+    boardWidth: 3,
+    contextSize: 145,
     scoreKind: "probability",
-    outputTransform: "identity",
-    encoder: "privileged_safe_counts",
+    outputTransform: "sigmoid",
+    encoder: "preplay_board_columns",
     grouping: "cards",
   },
   {
@@ -181,7 +187,9 @@ export const MODEL_SPECS: readonly ModelSpec[] = [
 ] as const;
 
 export const PLAYABLE_MODEL_SPECS = MODEL_SPECS.filter(
-  (spec) => !spec.encoder.startsWith("privileged"),
+  (spec) =>
+    !spec.encoder.startsWith("privileged") &&
+    spec.encoder !== "preplay_board_columns",
 );
 
 export interface ModelAnalysis {
@@ -248,6 +256,16 @@ const tensorsFor = (
   }
   if (spec.encoder === "board_columns_v1") {
     return encodeCandidatesBoardColumnsV1(candidates, viewer, turnStart, history);
+  }
+  if (spec.encoder === "preplay_board_columns") {
+    const value = encodePreplayBoardColumnsState(viewer, turnStart, tracking);
+    const board = new Float32Array(candidates.length * value.board.length);
+    const context = new Float32Array(candidates.length * value.context.length);
+    candidates.forEach((_, index) => {
+      board.set(value.board, index * value.board.length);
+      context.set(value.context, index * value.context.length);
+    });
+    return { board, context };
   }
   return encodeCandidatesActionDelta(candidates, viewer, turnStart, tracking);
 };
@@ -573,16 +591,21 @@ export const evaluateCandidates = (
 export const evaluatePreplayBefore = async (
   viewer: number,
   turnStart: GameState,
+  tracking: V2TrackingState,
   history: RecentPlacement[] = [],
   modelId: ModelId = DEFAULT_PREPLAY_MODEL.id,
 ): Promise<{ spec: ModelSpec; probability: number }> => {
   const spec =
     MODEL_SPECS.find(
-      (value) => value.id === modelId && value.encoder === "privileged_safe_counts",
+      (value) =>
+        value.id === modelId &&
+        (value.encoder === "privileged_safe_counts" ||
+          value.encoder === "preplay_board_columns"),
     ) ?? DEFAULT_PREPLAY_MODEL;
-  const tensors = encodePrivilegedSafeCountStateInputs([
-    { state: turnStart, history, viewer },
-  ]);
+  const tensors =
+    spec.encoder === "preplay_board_columns"
+      ? encodePreplayBoardColumnsState(viewer, turnStart, tracking)
+      : encodePrivilegedSafeCountStateInputs([{ state: turnStart, history, viewer }]);
   const scores = await inferRaw(spec, tensors.board, tensors.context, 1);
   return { spec, probability: scores[0] };
 };

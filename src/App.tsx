@@ -113,7 +113,9 @@ const defaultSettings: Settings = {
 };
 
 const publicModelSpecs = MODEL_SPECS.filter(
-  (spec) => !spec.encoder.startsWith("privileged"),
+  (spec) =>
+    !spec.encoder.startsWith("privileged") &&
+    spec.encoder !== "preplay_board_columns",
 );
 
 const sanitizePublicModelIds = (modelIds: ModelId[]): ModelId[] => {
@@ -256,7 +258,8 @@ export default function App() {
     : settings.modelIds;
   const primaryPlayableModelId = sanitizePlayableModelId(settings.npcModelId);
   const isPreplayModel = (model: ModelAnalysis) =>
-    model.spec.encoder.startsWith("privileged");
+    model.spec.encoder.startsWith("privileged") ||
+    model.spec.encoder === "preplay_board_columns";
 
   const activeOnlineGame = onlineLobby?.games.find(
     (game) => game.id === onlineLobby.activeGameId,
@@ -405,7 +408,7 @@ export default function App() {
     }
     let disposed = false;
     setPreplayOnly({ status: "loading", label: "Pre-play" });
-    evaluatePreplayBefore(viewPlayerIndex, state, history)
+    evaluatePreplayBefore(viewPlayerIndex, state, v2Tracking, history)
       .then((value) => {
         if (disposed) return;
         setPreplayOnly({
@@ -432,6 +435,7 @@ export default function App() {
     state?.phase,
     effectiveAssistMode,
     viewPlayerIndex,
+    v2Tracking,
     history,
   ]);
 
@@ -1487,7 +1491,8 @@ export default function App() {
           modelId: model.spec.id,
           label: model.spec.label,
           scoreKind: model.spec.scoreKind,
-          ...(model.spec.encoder.startsWith("privileged")
+          ...(model.spec.encoder.startsWith("privileged") ||
+          model.spec.encoder === "preplay_board_columns"
             ? {
                 scoreMeaning:
                   model.spec.encoder === "privileged_safe_counts"

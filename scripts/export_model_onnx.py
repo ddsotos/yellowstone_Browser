@@ -52,6 +52,11 @@ from yellowstone.value_board_columns import (  # noqa: E402
     BOARD_COLUMNS_WIDTH,
     CANONICALIZATION_BOARD_COLUMNS_V1,
 )
+from yellowstone.value_board_columns_v2 import (  # noqa: E402
+    CANONICALIZATION_PREPLAY_BOARD_COLUMNS,
+    PREPLAY_BOARD_COLUMNS_CONTEXT_SIZE,
+    VALUE_SCHEMA_PREPLAY_BOARD_COLUMNS,
+)
 from yellowstone.value_v2 import (  # noqa: E402
     BOARD_CHANNELS_V2,
     VALUE_CONTEXT_SIZE_V2,
@@ -81,18 +86,19 @@ MODELS = (
     },
     {
         "id": "preplay-safe-counts-generation0-197800-epoch001",
-        "label": "Pre-play safe/one-off gen0 197,800 epoch001",
-        "checkpoint": "preplay_safe_counts_generation0_197800_epoch001.pt",
-        "schema": "yellowstone.value.privileged-state.v1",
-        "canonicalization": CANONICALIZATION_PRIVILEGED_STATE,
-        "history": HISTORY_SEMANTICS_PRIVILEGED_STATE,
-        "feature_contract": FEATURE_CONTRACT_PRIVILEGED_STATE,
-        "channels": 29,
-        "context": 199,
+        "label": "Pre-play board columns 6h snapshot epoch001",
+        "checkpoint": "v2_heuristic_safe_counts_rank_color_6h_snapshot_training_preplay_board_columns_epoch001.pt",
+        "schema": VALUE_SCHEMA_PREPLAY_BOARD_COLUMNS,
+        "canonicalization": CANONICALIZATION_PREPLAY_BOARD_COLUMNS,
+        "history": "last_two_completed_turns_before_turn",
+        "channels": 1,
+        "board_height": 7,
+        "board_width": 3,
+        "context": PREPLAY_BOARD_COLUMNS_CONTEXT_SIZE,
         "score_kind": "probability",
-        "output_transform": "softmax_player0",
+        "output_transform": "sigmoid",
         "candidate_grouping": "played_cards",
-        "builder": "privileged",
+        "builder": "v1",
     },
     {
         "id": "v1-generation0-epoch002",
