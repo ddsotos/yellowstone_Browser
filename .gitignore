@@ -10,3 +10,5 @@ test-artifacts/
 __pycache__/
 local-data/
 vite.*.log
+online.*.log
+preview.*.log

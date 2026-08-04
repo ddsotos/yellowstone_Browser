@@ -112,17 +112,6 @@ export const setOnlineCpuDifficulty = (
     cpuDifficulty,
   });
 
-export const setOnlineCpuModel = (
-  sessionId: string,
-  gameId: string,
-  cpuModelId: ModelId,
-) =>
-  requestJson<{ lobby: OnlineLobby }>("/api/online/cpu-model", {
-    sessionId,
-    gameId,
-    cpuModelId,
-  });
-
 export const setOnlineWinRateDisplay = (
   sessionId: string,
   gameId: string,

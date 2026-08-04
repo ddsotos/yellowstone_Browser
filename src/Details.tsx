@@ -2,104 +2,36 @@ export function Details({ onBack }: { onBack: () => void }) {
   return (
     <main className="details-page">
       <button type="button" className="text-button" onClick={onBack}>
-        ← ゲームへ戻る
+        Back to game
       </button>
-      <h1>このブラウザ版について</h1>
+      <h1>Yellowstone Browser</h1>
       <section>
-        <h2>プロジェクト</h2>
+        <h2>Model</h2>
         <p>
-          ボードゲーム「Yellowstone park」を題材にした、非商用のファン制作ブラウザ実装です。
-          現在は公開許可の確認中であり、ローカル開発版として作業しています。
-          商品版の画像、ロゴ、イラスト、盤面デザインは使用していません。
+          This build uses one bundled ONNX model:
+          Board columns V1 6h snapshot epoch001. The same model is used for
+          expert NPC turns and in-game move analysis.
         </p>
       </section>
       <section>
-        <h2>遊び方</h2>
+        <h2>Analysis</h2>
         <p>
-          4人戦で、あなたのほかは3人のNPCです。カードには赤・青・緑・黄の色と、
-          1から7の数字があります。数字と同じ行へカードを置き、同じ色のカードは
-          盤面上で同じ列へ揃えます。すでに同じ色と数字のカードがあるマスには重ねて置けます。
-        </p>
-        <p>
-          手番では手札から1枚または2枚を順番に置きます。配置するたびに、盤面へ残す
-          3×3の枠を選びます。枠から外れたカードは、手番プレイヤーのマイナスカードになります。
-          3×3枠の8マス目または9マス目を新しく埋めると、失点を減らせます。
-        </p>
-        <p>
-          2枚置いた後は、山札から6枚まで補充するか、補充せず次へ進みます。
-          手札が空でマイナスカードが6枚以上ある場合は、マイナスカードから6枚を手札へ戻せます。
-          山札が足りなくなると決算し、マイナスカードの枚数だけ失点が増えます。
-          決算後に誰かが35点以上なら終了し、最も失点が少ないプレイヤーが勝者です。
+          Analysis compares the current player&apos;s selected turn with the
+          model&apos;s top legal turn candidates. Scores are estimated win
+          probabilities for the player to move.
         </p>
       </section>
       <section>
-        <h2>操作</h2>
-        <ol>
-          <li>手札のカードを押します。</li>
-          <li>盤面で光っている配置先を押します。</li>
-          <li>残す3×3枠を選びます。</li>
-          <li>必要なら2枚目も同じように選びます。</li>
-          <li>AI分析モードでは、選択した最大5モデルで自分の手と上位3択を比較できます。</li>
-          <li>「表示中の手でプレイ」で確定します。確定前なら選び直せます。</li>
-        </ol>
-      </section>
-      <section>
-        <h2>通常NPCと強化NPC</h2>
+        <h2>Privacy</h2>
         <p>
-          通常NPCは決められた評価規則で手を選びます。強化NPCは各合法手のターン終了状態を
-          学習モデルで評価します。強化NPCの計算が10秒を超えたターンだけ、通常NPCが代行します。
+          Model inference runs in the browser. Saved local games stay in
+          localStorage, and online play sends only game actions and lobby state
+          to the local online server.
         </p>
       </section>
       <section>
-        <h2>AI推定勝率</h2>
-        <p>
-          4つの勝率表示は厳密な勝率計算ではなく、heuristic同士の4人戦データから学習したモデルによる
-          推定です。action-deltaだけは勝率ではなく、次状態への相対的な改善度です。
-          同率勝者は勝利を人数で分割して学習しています。通常NPC戦に合わせたモデルのため、
-          強化NPC戦の値は未較正です。表示は整数に丸めますが、最善手の比較には丸め前の値を使います。
-        </p>
-        <p>
-          2枚プレイでは、補充によるランダムなカードをまだ引かず、
-          「山札から補充／マイナスカードから補充」の判断を明示した状態で評価します。
-          2枚プレイ後の「補充しない」は、勝率表示とAIの最善手候補から除外しています。
-          1枚プレイで手番を終え、補充が発生しない手は引き続き候補に含みます。
-          モデルごとに学習時と同じ履歴・候補境界・正規化を使います。
-        </p>
-        <p>
-          AI上位3択は、プレイするカードの組み合わせまたは補充判断が異なる候補を表示します。
-          同じカードで枠・プレイ順だけが異なる候補はまとめ、その中で最も推定勝率が
-          高い手を代表として表示します。山札から補充とマイナスカードから補充は
-          それぞれ別候補として扱います。自分と同じカードの候補も除外せず表示します。
-        </p>
-        <p>
-          Original V1 gen0、V2、V2-lite、公開情報のみのaction-delta、
-          新88,966戦のOriginal V1を同時に表示します。モデル間で較正や値の意味が異なるため、
-          推定値の平均は表示しません。
-        </p>
-        <p>
-          「検証データをダウンロード」では、全員の手札と山札順を含む対局状態、
-          自分の選択、AI上位3択、全候補の手順と推定値、モデル情報をJSON形式で保存できます。
-          各項目の詳しい読み方とPowerShellでの確認例は、リポジトリ内の
-          docs/analysis-json.mdに記載しています。
-        </p>
-        <p>
-          V1系とaction-deltaは補充方法を評価しません。V2とV2-liteだけが
-          補充予定を入力に含め、カード構成と補充方法の組み合わせを別候補にします。
-        </p>
-      </section>
-      <section>
-        <h2>通信と保存</h2>
-        <p>
-          対局状態はこのブラウザのlocalStorageへ保存され、外部サーバーには送信されません。
-          AI利用時のみ、固定バージョンのONNX Runtime WebをjsDelivr CDNから読み込みます。
-          モデル推論は端末内で行われます。CDNを読み込めない場合も通常NPC戦は遊べます。
-        </p>
-      </section>
-      <section>
-        <h2>クレジット</h2>
-        <p>
-          Original game design: Uwe Rosenberg / Publisher: AMIGO
-        </p>
+        <h2>Credits</h2>
+        <p>Original game design: Uwe Rosenberg / Publisher: AMIGO</p>
       </section>
     </main>
   );

@@ -14,6 +14,7 @@ const dataDir = process.env.ONLINE_DATA_DIR
 const storePath = path.join(dataDir, "online-state.json");
 const disconnectGraceMs = 5000;
 const port = Number(process.env.ONLINE_PORT ?? process.env.PORT ?? 9293);
+const currentModelId = "v1-6h-snapshot-board-columns-v1-epoch001";
 
 const json = (response, status, value) => {
   response.writeHead(status, {
@@ -162,7 +163,7 @@ const publicLobby = () => ({
     createdAt: game.createdAt,
     startedAt: game.startedAt,
     cpuDifficulty: game.cpuDifficulty,
-    cpuModelId: game.cpuModelId ?? "v1-generation0-epoch002",
+    cpuModelId: currentModelId,
     showWinRates: game.showWinRates !== false,
     seats: game.seats.map((seat) =>
       seat
@@ -244,7 +245,7 @@ const createGame = async (session, body) => {
     createdAt: nowIso(),
     startedAt: null,
     cpuDifficulty: body.cpuDifficulty === "expert" ? "expert" : "standard",
-    cpuModelId: body.cpuModelId || "v1-generation0-epoch002",
+    cpuModelId: currentModelId,
     showWinRates: body.showWinRates !== false,
     seats: [
       { index: 0, kind: "human", name: session.name, sessionId: session.id },
@@ -308,7 +309,7 @@ const setCpuModel = async (session, body) => {
   const game = findGame(body.gameId);
   if (game.hostSessionId !== session.id) throw new Error("Only the host can change CPU model.");
   if (game.status !== "waiting") throw new Error("CPU model cannot be changed after game start.");
-  game.cpuModelId = body.cpuModelId || "v1-generation0-epoch002";
+  game.cpuModelId = currentModelId;
   game.revision += 1;
   await changed();
   return game;

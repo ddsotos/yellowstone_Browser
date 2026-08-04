@@ -5,11 +5,6 @@ import {
   encodeCandidatesV1AtDecisionBoundary,
   TurnCandidate,
 } from "./value";
-import {
-  canonicalRecordV2Lite,
-  VALUE_CONTEXT_SIZE_V2_LITE,
-} from "./valueV2Lite";
-import { V2TrackingState } from "./v2Tracking";
 
 export const BOARD_COLUMNS_V1_CHANNELS = 1;
 export const BOARD_COLUMNS_V1_HEIGHT = 7;
@@ -17,7 +12,6 @@ export const BOARD_COLUMNS_V1_WIDTH = 3;
 export const BOARD_COLUMNS_V1_LEFT_MARGIN_CLASSES = 5;
 export const BOARD_COLUMNS_V1_CONTEXT_SIZE =
   CONTEXT_SIZE - 2 * 12 + BOARD_COLUMNS_V1_LEFT_MARGIN_CLASSES;
-export const PREPLAY_BOARD_COLUMNS_CONTEXT_SIZE = VALUE_CONTEXT_SIZE_V2_LITE + 7;
 
 const SOURCE_BOARD_RECORD_SIZE = BOARD_CHANNELS * 7 * 7;
 const COMPACT_BOARD_RECORD_SIZE =
@@ -103,58 +97,6 @@ export const boardColumnsFromCanonicalV1Tensors = (
   return { board, context };
 };
 
-export const boardColumnsFromCanonicalV2LitePreplay = (
-  sourceBoard: Float32Array,
-  sourceContext: Float32Array,
-): { board: Float32Array; context: Float32Array } => {
-  const sourceRecordSize = 29 * 7 * 7;
-  if (sourceBoard.length % sourceRecordSize !== 0) {
-    throw new Error(`preplay_board_columns board size mismatch: ${sourceBoard.length}`);
-  }
-  const records = sourceBoard.length / sourceRecordSize;
-  if (sourceContext.length !== records * VALUE_CONTEXT_SIZE_V2_LITE) {
-    throw new Error(
-      `preplay_board_columns context size mismatch: ${sourceContext.length}`,
-    );
-  }
-  const board = new Float32Array(records * COMPACT_BOARD_RECORD_SIZE);
-  const context = new Float32Array(records * PREPLAY_BOARD_COLUMNS_CONTEXT_SIZE);
-  for (let record = 0; record < records; record += 1) {
-    context.set(
-      sourceContext.slice(
-        record * VALUE_CONTEXT_SIZE_V2_LITE,
-        (record + 1) * VALUE_CONTEXT_SIZE_V2_LITE,
-      ),
-      record * PREPLAY_BOARD_COLUMNS_CONTEXT_SIZE,
-    );
-    let left = 7;
-    let right = -1;
-    for (let x = 0; x < 7; x += 1) {
-      let count = 0;
-      for (let y = 0; y < 7; y += 1) {
-        count += sourceBoard[record * sourceRecordSize + 28 * 49 + y * 7 + x];
-      }
-      if (count > 0) {
-        left = Math.min(left, x);
-        right = Math.max(right, x);
-      }
-    }
-    if (right < left) throw new Error("preplay_board_columns cannot encode an empty board");
-    const width = right - left + 1;
-    if (width > BOARD_COLUMNS_V1_WIDTH) {
-      throw new Error(`preplay_board_columns occupied width exceeds 3: ${width}`);
-    }
-    for (let y = 0; y < BOARD_COLUMNS_V1_HEIGHT; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        board[compactBoardIndex(record, y, x)] =
-          sourceBoard[record * sourceRecordSize + 28 * 49 + y * 7 + left + x];
-      }
-    }
-    context[record * PREPLAY_BOARD_COLUMNS_CONTEXT_SIZE + VALUE_CONTEXT_SIZE_V2_LITE + left] = 1;
-  }
-  return { board, context };
-};
-
 export const encodeCandidatesBoardColumnsV1 = (
   candidates: TurnCandidate[],
   viewer: number,
@@ -167,22 +109,4 @@ export const encodeCandidatesBoardColumnsV1 = (
     turnStart,
   );
   return boardColumnsFromCanonicalV1Tensors(canonical.board, canonical.context);
-};
-
-export const encodePreplayBoardColumnsState = (
-  viewer: number,
-  turnStart: GameState,
-  tracking: V2TrackingState,
-): { board: Float32Array; context: Float32Array } => {
-  const value = canonicalRecordV2Lite({
-    before: turnStart,
-    after: turnStart,
-    viewer,
-    history: tracking.history.slice(-2),
-    pending: "no_pending",
-  });
-  return boardColumnsFromCanonicalV2LitePreplay(
-    value.board.slice(0, 29 * 49),
-    value.context,
-  );
 };

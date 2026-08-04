@@ -1,10 +1,10 @@
 import { Board as BoardState, Frame, PlaceCardAction, positionKey } from "../game/types";
 
 const COLOR_LABEL = {
-  red: "赤",
-  blue: "青",
-  green: "緑",
-  yellow: "黄",
+  red: "R",
+  blue: "B",
+  green: "G",
+  yellow: "Y",
 } as const;
 
 interface Props {
@@ -31,7 +31,7 @@ export function Board({
   const xs = [6, 5, 4, 3, 2, 1, 0];
   const ys = [6, 5, 4, 3, 2, 1, 0];
   return (
-    <div className="board-shell" aria-label="7×7のゲーム盤">
+    <div className="board-shell" aria-label="7 by 7 game board">
       <div className="rank-labels" aria-hidden="true">
         {ys.map((y) => (
           <span key={y}>{y + 1}</span>
@@ -72,7 +72,7 @@ export function Board({
                     : onPositionClick?.(x, y)
                 }
                 disabled={!isPlacementTarget && !isFrameAnchor}
-                aria-label={`${y + 1}行 ${7 - x}列${
+                aria-label={`row ${y + 1} column ${7 - x}${
                   top ? ` ${COLOR_LABEL[top.color]}${top.rankIndex + 1}` : ""
                 }`}
               >
@@ -80,14 +80,14 @@ export function Board({
                   <span className={`board-card card-${top.color}`}>
                     <span className="card-color">{COLOR_LABEL[top.color]}</span>
                     <strong>{top.rankIndex + 1}</strong>
-                    {stack.length > 1 && <small>×{stack.length}</small>}
+                    {stack.length > 1 && <small>x{stack.length}</small>}
                   </span>
                 )}
                 {previewIndex >= 0 && (
                   <span className="play-order">{previewIndex + 1}</span>
                 )}
-                {isPenalty && <span className="penalty-label">失点</span>}
-                {isFrameAnchor && <span className="frame-anchor-label">左上</span>}
+                {isPenalty && <span className="penalty-label">loss</span>}
+                {isFrameAnchor && <span className="frame-anchor-label">frame</span>}
               </button>
             );
           }),

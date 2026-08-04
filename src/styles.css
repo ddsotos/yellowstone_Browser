@@ -684,13 +684,6 @@ label {
   color: #9fae9d;
 }
 
-.preplay-summary {
-  color: #f5d27a;
-  font-size: 0.9rem;
-  margin-left: auto;
-  white-space: nowrap;
-}
-
 .model-error {
   grid-column: 2;
   align-self: center;

@@ -1,10 +1,10 @@
 import { Card } from "../game/types";
 
 const COLOR_LABEL = {
-  red: "赤",
-  blue: "青",
-  green: "緑",
-  yellow: "黄",
+  red: "R",
+  blue: "B",
+  green: "G",
+  yellow: "Y",
 } as const;
 
 interface Props {
@@ -16,7 +16,7 @@ interface Props {
 
 export function Hand({ cards, selectedIndex, disabled, onSelect }: Props) {
   return (
-    <div className="hand" aria-label="あなたの手札">
+    <div className="hand" aria-label="your hand">
       {cards.map((card, index) => (
         <button
           type="button"
